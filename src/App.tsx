@@ -26,6 +26,7 @@ function App() {
       const { data: profile, error } = await supabase.from('profiles').select('display_name, role').eq('id', session.user.id).single()
       if (!mounted) return
       if (error) console.error('No se pudo cargar el perfil de Supabase:', error)
+      console.info('[MeetUP Auth] perfil cargado', { userId: session.user.id, displayName: profile?.display_name, role: profile?.role, error: error?.message })
       setDisplayName(profile?.display_name ?? session.user.email?.split('@')[0] ?? 'Usuario')
       const normalizedRole = String(profile?.role ?? '').toUpperCase()
       setRole(normalizedRole === 'ADMIN' || normalizedRole === 'SUPERVISOR' || normalizedRole === 'CHECKIN' ? normalizedRole : 'CHECKIN')
