@@ -270,7 +270,7 @@ Requisitos:
 
 - búsqueda tolerante a acentos, mayúsculas y orden del nombre;
 - búsqueda por estaca o barrio como criterio secundario;
-- autorización pendiente bloquea el flujo para `CHECKIN`;
+- autorización pendiente bloquea el flujo hasta que el ADMIN la confirme;
 - remera, cartas y credencial son toggles grandes;
 - una persona ya registrada no puede registrarse dos veces;
 - la compañía confirmada queda fija;
@@ -356,10 +356,10 @@ Carga manual de 1.º, 2.º y 3.º puesto
 
 ## 6. Roles y Permisos
 
-Los roles base son:
+Para este MVP se utiliza un único usuario operativo con rol administrador:
 
 ```ts
-type UserRole = 'CONSEJERO' | 'ADMIN';
+type UserRole = 'ADMIN';
 ```
 
 Los permisos deben ser explícitos para no llenar los componentes de condiciones dispersas:
@@ -376,21 +376,16 @@ interface Permissions {
 }
 ```
 
-### CONSEJERO
+### ADMIN
 
-- todo lo anterior;
+- registrar y gestionar Check-in;
 - resolver excepciones;
 - modificar compañías;
-- registrar y gestionar Check-in;
 - administrar juegos y resultados;
 - corregir resultados con motivo;
 - resolver impugnaciones y empates;
 - confirmar premios;
-- configurar puntajes de sesión cuando corresponda.
-
-### ADMIN
-
-- todo lo anterior;
+- configurar puntajes de sesión;
 - importar/exportar;
 - administrar usuarios y compañías;
 - abrir/cerrar/reiniciar actividades;
@@ -822,8 +817,7 @@ En offline se puede consultar el último estado conocido, pero no mostrar una as
 - Supabase Auth para login.
 - RLS en todas las tablas con `event_id`.
 - Usuarios solo ven eventos autorizados.
-- `CHECKIN` no resuelve autorizaciones pendientes.
-- CONSEJERO y ADMIN son los únicos que configuran o corrigen.
+- ADMIN es el único rol operativo del MVP y puede configurar o corregir toda la información.
 - No poner nombres, barrios ni datos personales en URLs.
 - No registrar tokens en consola.
 - No enviar secretos, contraseñas ni tokens al modo proyector.
@@ -993,7 +987,7 @@ Esta decisión evita toolchains, servidores propios y componentes adicionales. M
 - búsqueda con acentos y sin acentos;
 - nombre parcial en cualquier orden;
 - doble check-in bloqueado;
-- autorización pendiente bloqueada para CHECKIN;
+- autorización pendiente bloqueada hasta confirmación del ADMIN;
 - persona no encontrada crea excepción;
 - compañía recomendada queda fija después de confirmar;
 - dos registros simultáneos no duplican ni desbalancean por carrera;

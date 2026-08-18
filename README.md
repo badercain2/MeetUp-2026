@@ -16,10 +16,10 @@ npm run lint
 npm run build
 ```
 
-## Accesos mock
+## Acceso MVP
 
-- El formulario inicia como `SUPERVISOR`.
-- `Entrar como Admin` habilita la ruta `/admin` y acciones de administración.
+- El MVP usa un único usuario real de Supabase con rol `ADMIN`.
+- Ese usuario puede gestionar Check-in, juegos, resultados, compañías y administración.
 - Para probar estados de conexión, toca `En línea` en la cabecera.
 
 ## Estructura

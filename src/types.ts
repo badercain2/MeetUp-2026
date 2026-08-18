@@ -1,4 +1,4 @@
-export type UserRole = 'CONSEJERO' | 'ADMIN'
+export type UserRole = 'ADMIN'
 export type SyncState = 'online' | 'reconnecting' | 'offline'
 export type AuthorizationStatus = 'confirmed' | 'pending' | 'missing'
 export type CompanyIcon = 'wave' | 'fire' | 'cloud' | 'manna' | 'mountain' | 'path' | 'staff' | 'star'

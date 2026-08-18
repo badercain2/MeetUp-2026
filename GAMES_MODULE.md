@@ -65,9 +65,7 @@ Solo Sigue la Música suma automáticamente porque el manual define valores. Evi
 
 ## Roles
 
-- `CHECKIN`: lectura de actividades y resultados.
-- `SUPERVISOR`: lectura, correcciones, impugnaciones y resolución de empates.
-- `ADMIN`: además configura puntajes globales, premios, actividades y reinicios.
+- `ADMIN`: único usuario operativo del MVP; gestiona actividades, correcciones, impugnaciones, puntajes globales, premios y reinicios.
 
 ## Datos y Realtime
 

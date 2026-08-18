@@ -11,7 +11,7 @@ const normalize = (value: string) => value.toLocaleLowerCase('es').normalize('NF
 const formatName = (person: Participant) => `${person.firstName} ${person.lastName}`
 
 function App() {
-  const [role, setRole] = useState<UserRole>('CONSEJERO')
+  const [role, setRole] = useState<UserRole>('ADMIN')
   const [displayName, setDisplayName] = useState('')
   const [isLoggedIn, setLoggedIn] = useState(false)
   const [authLoading, setAuthLoading] = useState(true)
@@ -29,7 +29,7 @@ function App() {
       console.info('[MeetUP Auth] perfil cargado', { userId: session.user.id, displayName: profile?.display_name, role: profile?.role, error: error?.message })
       setDisplayName(profile?.display_name ?? session.user.email?.split('@')[0] ?? 'Usuario')
       const normalizedRole = String(profile?.role ?? '').toUpperCase()
-      setRole(normalizedRole === 'ADMIN' ? 'ADMIN' : 'CONSEJERO')
+      setRole('ADMIN')
       setLoggedIn(true)
       setAuthLoading(false)
     }
@@ -281,7 +281,7 @@ function loadGameStates(activityId: string) {
 function GamesPage({ role, companies, section = 'dashboard', projector = false, manage = false }: { role: UserRole; companies: Company[]; section?: GamesSection; projector?: boolean; manage?: boolean }) {
   const location = useLocation()
   const navigate = useNavigate()
-  const canManage = role === 'CONSEJERO' || role === 'ADMIN'
+  const canManage = role === 'ADMIN'
   const activityId = location.pathname === '/games/tournament' ? 'masters' : location.pathname.split('/')[3]
   const activeFromRoute = gameActivities.find((activity) => activity.id === activityId) ?? gameActivities.find((activity) => activity.id === 'who-am-i') ?? gameActivities[0]
   const [activeId, setActiveId] = useState(activeFromRoute.id)
