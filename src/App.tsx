@@ -12,6 +12,7 @@ const formatName = (person: Participant) => `${person.firstName} ${person.lastNa
 
 function App() {
   const [role, setRole] = useState<UserRole>('CHECKIN')
+  const [displayName, setDisplayName] = useState('')
   const [isLoggedIn, setLoggedIn] = useState(false)
   const [authLoading, setAuthLoading] = useState(true)
   const [syncState, setSyncState] = useState<SyncState>('online')
@@ -20,10 +21,12 @@ function App() {
 
   useEffect(() => {
     let mounted = true
-    const syncProfile = async (session: { user: { id: string } } | null) => {
+    const syncProfile = async (session: { user: { id: string; email?: string } } | null) => {
       if (!session) { setLoggedIn(false); setAuthLoading(false); return }
-      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single()
+      const { data: profile, error } = await supabase.from('profiles').select('display_name, role').eq('id', session.user.id).single()
       if (!mounted) return
+      if (error) console.error('No se pudo cargar el perfil de Supabase:', error)
+      setDisplayName(profile?.display_name ?? session.user.email?.split('@')[0] ?? 'Usuario')
       setRole((profile?.role as UserRole | undefined) ?? 'CHECKIN')
       setLoggedIn(true)
       setAuthLoading(false)
@@ -33,7 +36,7 @@ function App() {
     void loadSession()
     window.addEventListener('focus', refreshOnFocus)
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT' || !session) { setLoggedIn(false); setAuthLoading(false); return }
+      if (event === 'SIGNED_OUT' || !session) { setDisplayName(''); setLoggedIn(false); setAuthLoading(false); return }
       window.setTimeout(() => void syncProfile(session), 0)
     })
     return () => { mounted = false; window.removeEventListener('focus', refreshOnFocus); listener.subscription.unsubscribe() }
@@ -45,7 +48,7 @@ function App() {
 
   if (authLoading) return <div className="auth-loading">Cargando sesión…</div>
   if (!isLoggedIn) return <Routes><Route path="*" element={<LoginPage onLogin={login} />} /></Routes>
-  return <AppShell role={role} syncState={syncState} setSyncState={setSyncState} onLogout={logout}>
+  return <AppShell role={role} displayName={displayName} syncState={syncState} setSyncState={setSyncState} onLogout={logout}>
     <Routes>
       <Route path="/" element={<Navigate to="/checkin" replace />} />
       <Route path="/checkin" element={<CheckInPage participants={participants} companies={companies} refresh={refresh} />} />
@@ -89,8 +92,9 @@ function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => 
   </main>
 }
 
-function AppShell({ children, role, syncState, setSyncState, onLogout }: { children: React.ReactNode; role: UserRole; syncState: SyncState; setSyncState: (state: SyncState) => void; onLogout: () => void }) {
+function AppShell({ children, role, displayName, syncState, setSyncState, onLogout }: { children: React.ReactNode; role: UserRole; displayName: string; syncState: SyncState; setSyncState: (state: SyncState) => void; onLogout: () => void }) {
   const location = useLocation()
+  const initials = displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'US'
   const navItems = [{ to: '/checkin', label: 'Check-in', icon: Zap }, { to: '/schedule', label: 'Cronograma', icon: CalendarDays }, { to: '/games', label: 'Juegos', icon: Trophy }, { to: '/companies', label: 'Compañías', icon: BarChart3 }, { to: '/participants', label: 'Participantes', icon: Users }, { to: '/exceptions', label: 'Excepciones', icon: ShieldAlert }]
   if (location.pathname === '/games/live') return <div className="projector-shell"><header className="projector-header"><div className="brand"><div className="brand-mark"><span>MU</span><i /></div><strong>MEETUP <b>2026</b></strong></div><ConnectionStatus state={syncState} /><Link to="/games" className="projector-exit">Salir del proyector <ArrowRight size={16} /></Link></header><main className="projector-main">{children}</main></div>
   return <div className="app-shell">
@@ -101,7 +105,7 @@ function AppShell({ children, role, syncState, setSyncState, onLogout }: { child
       <div className="sidebar-bottom"><div className="field-note"><Cloud size={16} /><span>El camino se construye<br /><strong>juntos.</strong></span></div><button className="nav-link logout" onClick={onLogout}><LogOut size={18} />Cerrar sesión</button></div>
     </aside>
     <div className="main-area">
-      <header className="top-header checkin-header"><div className="mobile-menu"><Menu size={21} /></div><div className="top-title"><span className="eyebrow">MEETUP 2026</span><strong>{location.pathname === '/checkin' ? 'Check-in de sesión' : navItems.find((item) => location.pathname.startsWith(item.to))?.label ?? 'Administración'}</strong></div><div className="top-actions"><button className="sync-toggle" onClick={() => setSyncState(syncState === 'online' ? 'offline' : 'online')}><ConnectionStatus state={syncState} /></button><div className="user-avatar">MR</div><div className="user-info"><strong>Mariana Ríos</strong><span>{role}</span></div></div></header>
+       <header className="top-header checkin-header"><div className="mobile-menu"><Menu size={21} /></div><div className="top-title"><span className="eyebrow">MEETUP 2026</span><strong>{location.pathname === '/checkin' ? 'Check-in de sesión' : navItems.find((item) => location.pathname.startsWith(item.to))?.label ?? 'Administración'}</strong></div><div className="top-actions"><button className="sync-toggle" onClick={() => setSyncState(syncState === 'online' ? 'offline' : 'online')}><ConnectionStatus state={syncState} /></button><div className="user-avatar">{initials}</div><div className="user-info"><strong>{displayName}</strong><span>{role}</span></div></div></header>
       {syncState === 'offline' && <div className="offline-banner"><WifiOff size={16} /> Sin conexión. La información puede estar desactualizada.</div>}
       <main className={`content app-dark-content ${location.pathname === '/checkin' ? 'checkin-content' : ''}`}>{children}</main>
     </div>
