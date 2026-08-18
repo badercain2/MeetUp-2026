@@ -27,7 +27,8 @@ function App() {
       if (!mounted) return
       if (error) console.error('No se pudo cargar el perfil de Supabase:', error)
       setDisplayName(profile?.display_name ?? session.user.email?.split('@')[0] ?? 'Usuario')
-      setRole((profile?.role as UserRole | undefined) ?? 'CHECKIN')
+      const normalizedRole = String(profile?.role ?? '').toUpperCase()
+      setRole(normalizedRole === 'ADMIN' || normalizedRole === 'SUPERVISOR' || normalizedRole === 'CHECKIN' ? normalizedRole : 'CHECKIN')
       setLoggedIn(true)
       setAuthLoading(false)
     }
