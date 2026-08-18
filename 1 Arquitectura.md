@@ -757,6 +757,20 @@ Antes y durante el evento descargar respaldos en distintos momentos. Supabase Fr
 
 ### Plan de continuidad sin costo
 
+### Datos de participantes pendientes
+
+La lista real de participantes y sus datos logísticos llegará pocos días antes del evento. Hasta ese momento, el desarrollo y las pruebas utilizarán datos ficticios claramente identificados como prueba.
+
+- Los datos mock actuales sirven para probar búsqueda, Check-in, compañías, juegos, torneo y proyector.
+- Los participantes ficticios no deben mezclarse con la carga real del evento.
+- Cuando llegue el archivo definitivo, ADMIN debe validarlo y cargarlo mediante importación CSV/XLSX.
+- La importación debe mostrar una previsualización, errores por fila y una confirmación antes de insertar.
+- Antes de la carga real se debe limpiar cualquier participante de prueba del evento de producción.
+- Los datos originales deben conservar el mismo `event_id` de producción y no requieren cambiar el código de la aplicación.
+- Después de importar, se debe verificar cantidad total, nombres, estacas, barrios, autorizaciones y líderes antes de abrir el Check-in.
+
+La recomendación es mantener ahora los datos ficticios para probar el sistema y realizar una carga limpia de los participantes reales cuando coordinación entregue el archivo definitivo.
+
 Antes de abrir el check-in:
 
 - descargar la lista inicial en la notebook y en otro dispositivo;
