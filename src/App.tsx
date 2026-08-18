@@ -20,23 +20,23 @@ function App() {
 
   useEffect(() => {
     let mounted = true
-    const loadSession = async () => {
-      const { data } = await supabase.auth.getSession()
+    const syncProfile = async (session: { user: { id: string } } | null) => {
+      if (!session) { setLoggedIn(false); setAuthLoading(false); return }
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single()
       if (!mounted) return
-      if (data.session) {
-        const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.session.user.id).single()
-        setRole((profile?.role as UserRole | undefined) ?? 'CHECKIN')
-        setLoggedIn(true)
-      }
+      setRole((profile?.role as UserRole | undefined) ?? 'CHECKIN')
+      setLoggedIn(true)
       setAuthLoading(false)
     }
+    const loadSession = async () => { const { data } = await supabase.auth.getSession(); await syncProfile(data.session) }
+    const refreshOnFocus = () => { void supabase.auth.getSession().then(({ data }) => syncProfile(data.session)) }
     void loadSession()
+    window.addEventListener('focus', refreshOnFocus)
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' || !session) { setLoggedIn(false); setAuthLoading(false); return }
-      setLoggedIn(true)
-      void supabase.from('profiles').select('role').eq('id', session.user.id).single().then(({ data: profile }) => setRole((profile?.role as UserRole | undefined) ?? 'CHECKIN'))
+      window.setTimeout(() => void syncProfile(session), 0)
     })
-    return () => { mounted = false; listener.subscription.unsubscribe() }
+    return () => { mounted = false; window.removeEventListener('focus', refreshOnFocus); listener.subscription.unsubscribe() }
   }, [])
 
   const refresh = () => { setParticipants([...participantRepository.list()]); setCompanies([...companyRepository.list()]) }
