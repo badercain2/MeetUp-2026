@@ -3,6 +3,7 @@ import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from
 import { AlertTriangle, ArrowRight, BarChart3, CalendarDays, Camera, Check, CheckCheck, CheckCircle2, ChevronRight, CircleHelp, ClipboardCheck, Clock3, Cloud, Crown, Download, DoorOpen, Eye, FileUp, Flame, HeartHandshake, Home, ListChecks, LogOut, Menu, Medal, Mountain, PackageCheck, Pause, Play, Radio, Search, Settings2, ShieldAlert, Sparkles, Star, Trophy, UserRound, Users, Utensils, Wifi, WifiOff, X, Zap } from 'lucide-react'
 import { companyRepository, exceptionRepository, participantRepository, recommendCompany } from './data/repository'
 import { gameActivities, gameCompanyStates, gameRewards, tournamentMatches } from './data/gamesData'
+import { supabase } from './data/supabase/client'
 import { scheduleItems } from './data/scheduleData'
 import type { ActivityStatus, Company, CompanyActivityState, CompanyIcon, GameActivity, GameReward, Participant, RewardStatus, ScheduleItem, SyncState, UserRole } from './types'
 
@@ -10,16 +11,39 @@ const normalize = (value: string) => value.toLocaleLowerCase('es').normalize('NF
 const formatName = (person: Participant) => `${person.firstName} ${person.lastName}`
 
 function App() {
-  const [role, setRole] = useState<UserRole>('SUPERVISOR')
+  const [role, setRole] = useState<UserRole>('CHECKIN')
   const [isLoggedIn, setLoggedIn] = useState(false)
+  const [authLoading, setAuthLoading] = useState(true)
   const [syncState, setSyncState] = useState<SyncState>('online')
   const [participants, setParticipants] = useState(participantRepository.list())
   const [companies, setCompanies] = useState(companyRepository.list())
 
-  const refresh = () => { setParticipants([...participantRepository.list()]); setCompanies([...companyRepository.list()]) }
-  const login = (selectedRole: UserRole) => { setRole(selectedRole); setLoggedIn(true) }
-  const logout = () => setLoggedIn(false)
+  useEffect(() => {
+    let mounted = true
+    const loadSession = async () => {
+      const { data } = await supabase.auth.getSession()
+      if (!mounted) return
+      if (data.session) {
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.session.user.id).single()
+        setRole((profile?.role as UserRole | undefined) ?? 'CHECKIN')
+        setLoggedIn(true)
+      }
+      setAuthLoading(false)
+    }
+    void loadSession()
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session) { setLoggedIn(false); setAuthLoading(false); return }
+      setLoggedIn(true)
+      void supabase.from('profiles').select('role').eq('id', session.user.id).single().then(({ data: profile }) => setRole((profile?.role as UserRole | undefined) ?? 'CHECKIN'))
+    })
+    return () => { mounted = false; listener.subscription.unsubscribe() }
+  }, [])
 
+  const refresh = () => { setParticipants([...participantRepository.list()]); setCompanies([...companyRepository.list()]) }
+  const login = async (email: string, password: string) => { const { error } = await supabase.auth.signInWithPassword({ email, password }); if (error) throw error }
+  const logout = () => { void supabase.auth.signOut() }
+
+  if (authLoading) return <div className="auth-loading">Cargando sesión…</div>
   if (!isLoggedIn) return <Routes><Route path="*" element={<LoginPage onLogin={login} />} /></Routes>
   return <AppShell role={role} syncState={syncState} setSyncState={setSyncState} onLogout={logout}>
     <Routes>
@@ -42,9 +66,10 @@ function App() {
   </AppShell>
 }
 
-function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
+function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => Promise<void> }) {
   const [email, setEmail] = useState('voluntario@meetup.org')
   const [password, setPassword] = useState('meetup2026')
+  const [error, setError] = useState('')
   return <main className="login-page">
     <section className="login-visual">
       <img className="login-cover-art" src="/assets/meetup-hero.jpg" alt="Portada MeetUP 2026 con el Mar Rojo abierto y jóvenes caminando hacia la luz" /><div className="login-cover-overlay" /><div className="login-visual-content"><div className="brand-mark large"><span>MU</span><i /></div><div className="login-photo-label"><p className="eyebrow light">ÁREA SUDAMÉRICA SUR</p><strong>El camino<br /><em>se abre.</em></strong></div></div><div className="scene-caption"><span className="scene-line" /> ANDA CONMIGO · MOISÉS 6:34</div>
@@ -53,12 +78,11 @@ function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
       <div className="login-form-card">
         <div className="mobile-brand"><div className="brand-mark"><span>MU</span><i /></div><span className="eyebrow">MEETUP 2026</span></div>
         <div className="login-heading"><p className="eyebrow">ÁREA DE VOLUNTARIOS</p><h2>Bienvenido al<br /><strong>punto de encuentro.</strong></h2><p>Registra llegadas de forma simple, clara y rápida.</p></div>
-        <form onSubmit={(event) => { event.preventDefault(); onLogin('SUPERVISOR') }}>
+        <form onSubmit={async (event) => { event.preventDefault(); setError(''); try { await onLogin(email, password) } catch { setError('Correo o contraseña incorrectos.') } }}>
           <label>Correo electrónico<input aria-label="Correo electrónico" value={email} onChange={(event) => setEmail(event.target.value)} type="email" /></label>
           <label>Contraseña<input aria-label="Contraseña" value={password} onChange={(event) => setPassword(event.target.value)} type="password" /></label>
-          <button className="button primary full" type="submit">Iniciar sesión <ArrowRight size={18} /></button>
+          {error && <p className="login-error">{error}</p>}<button className="button primary full" type="submit">Iniciar sesión <ArrowRight size={18} /></button>
         </form>
-        <div className="demo-access"><span>Acceso de demostración</span><button onClick={() => onLogin('ADMIN')}>Entrar como Admin</button></div>
         <p className="login-foot">Área Sudamérica Sur · MeetUP 2026</p>
       </div>
     </section>
