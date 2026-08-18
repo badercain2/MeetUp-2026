@@ -11,7 +11,7 @@ const normalize = (value: string) => value.toLocaleLowerCase('es').normalize('NF
 const formatName = (person: Participant) => `${person.firstName} ${person.lastName}`
 
 function App() {
-  const [role, setRole] = useState<UserRole>('CHECKIN')
+  const [role, setRole] = useState<UserRole>('CONSEJERO')
   const [displayName, setDisplayName] = useState('')
   const [isLoggedIn, setLoggedIn] = useState(false)
   const [authLoading, setAuthLoading] = useState(true)
@@ -29,7 +29,7 @@ function App() {
       console.info('[MeetUP Auth] perfil cargado', { userId: session.user.id, displayName: profile?.display_name, role: profile?.role, error: error?.message })
       setDisplayName(profile?.display_name ?? session.user.email?.split('@')[0] ?? 'Usuario')
       const normalizedRole = String(profile?.role ?? '').toUpperCase()
-      setRole(normalizedRole === 'ADMIN' || normalizedRole === 'SUPERVISOR' || normalizedRole === 'CHECKIN' ? normalizedRole : 'CHECKIN')
+      setRole(normalizedRole === 'ADMIN' ? 'ADMIN' : 'CONSEJERO')
       setLoggedIn(true)
       setAuthLoading(false)
     }
@@ -243,7 +243,7 @@ function ParticipantDirectory({ participants, companies, refresh }: { participan
   return <div className="standard-page"><PageTitle eyebrow="REGISTRO" title={<>Todos los <em>participantes.</em></>} description="Consulta rápida del estado de llegada." action={<div className="participants-actions"><div className="mini-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar…" aria-label="Buscar participantes" /></div><button className="button outline guest-button" onClick={() => setShowGuestForm(true)}><UserRound size={16} /> Agregar visitante</button></div>} /><div className="filter-row">{filters.map((item) => <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item}{item === 'Excepciones' && <b>{participants.filter((person) => person.isException).length}</b>}</button>)}</div><div className="participant-table"><div className="table-head"><span>Nombre</span><span>Estaca / Barrio</span><span>Estado</span><span>Compañía / tipo</span><span>Hora</span></div>{visible.slice(0, 40).map((person) => <div className="table-row" key={person.id}><div className="table-person"><span className="mini-avatar">{person.firstName[0]}{person.lastName[0]}</span><strong>{formatName(person)}<small>{person.isChurchMember ? 'Miembro' : 'Visitante'}</small></strong></div><span>{person.stake}<small>{person.ward}</small></span><span><StatusChip status={person.authorizationStatus} /></span><span className="company-cell"><select className="company-select" value={person.companyId ?? ''} onChange={(event) => changeCompany(person.id, event.target.value)}><option value="">Sin asignar</option>{companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select><small>{person.companyId ? 'Cambio guardado' : 'Asignar ahora'}</small></span><span>{person.checkedInAt ?? 'Pendiente'}</span></div>)}</div><p className="table-foot">Mostrando {Math.min(40, visible.length)} de {visible.length} participantes</p>{showGuestForm && <GuestForm companies={companies} onClose={() => setShowGuestForm(false)} onAdded={handleGuestAdded} />}</div>
 }
 
-function ExceptionsPage({ role }: { role: UserRole }) { const items = exceptionRepository.list(); return <div className="standard-page"><PageTitle eyebrow="ATENCIÓN REQUERIDA" title={<>Casos para <em>revisar.</em></>} description="Ordenados desde el más antiguo para no dejar a nadie atrás." action={<span className="exception-total"><AlertTriangle size={17} /> 2 pendientes</span>} /><div className="exception-list">{items.map((item) => <article className={`exception-card ${item.resolved ? 'resolved' : ''}`} key={item.id}><div className="exception-icon"><AlertTriangle size={20} /></div><div className="exception-copy"><div><span className="exception-type">{item.title}</span>{item.resolved && <span className="resolved-tag"><Check size={13} /> Resuelta</span>}</div><h3>{item.participantName}</h3><p>{item.location}</p><small>Registrado {item.createdAt} por {item.createdBy}{item.resolved && ` · Resuelto por ${item.resolvedBy} a las ${item.resolvedAt}`}</small></div>{!item.resolved && role !== 'CHECKIN' && <button className="button outline">Revisar <ArrowRight size={16} /></button>}</article>)}</div></div> }
+ function ExceptionsPage({ role }: { role: UserRole }) { const items = exceptionRepository.list(); return <div className="standard-page"><PageTitle eyebrow="ATENCIÓN REQUERIDA" title={<>Casos para <em>revisar.</em></>} description="Ordenados desde el más antiguo para no dejar a nadie atrás." action={<span className="exception-total"><AlertTriangle size={17} /> 2 pendientes</span>} /><div className="exception-list">{items.map((item) => <article className={`exception-card ${item.resolved ? 'resolved' : ''}`} key={item.id}><div className="exception-icon"><AlertTriangle size={20} /></div><div className="exception-copy"><div><span className="exception-type">{item.title}</span>{item.resolved && <span className="resolved-tag"><Check size={13} /> Resuelta</span>}</div><h3>{item.participantName}</h3><p>{item.location}</p><small>Registrado {item.createdAt} por {item.createdBy}{item.resolved && ` · Resuelto por ${item.resolvedBy} a las ${item.resolvedAt}`}</small></div>{!item.resolved && <button className="button outline">Revisar <ArrowRight size={16} /></button>}</article>)}</div></div> }
 function escapeReportValue(value: string) { return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') }
 function downloadWordReport(participants: Participant[], companies: Company[], mode: 'present' | 'all') {
   const rows = mode === 'present' ? participants.filter((participant) => participant.checkedIn) : participants
@@ -281,7 +281,7 @@ function loadGameStates(activityId: string) {
 function GamesPage({ role, companies, section = 'dashboard', projector = false, manage = false }: { role: UserRole; companies: Company[]; section?: GamesSection; projector?: boolean; manage?: boolean }) {
   const location = useLocation()
   const navigate = useNavigate()
-  const canManage = role !== 'CHECKIN'
+  const canManage = role === 'CONSEJERO' || role === 'ADMIN'
   const activityId = location.pathname === '/games/tournament' ? 'masters' : location.pathname.split('/')[3]
   const activeFromRoute = gameActivities.find((activity) => activity.id === activityId) ?? gameActivities.find((activity) => activity.id === 'who-am-i') ?? gameActivities[0]
   const [activeId, setActiveId] = useState(activeFromRoute.id)

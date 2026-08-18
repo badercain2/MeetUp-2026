@@ -359,7 +359,7 @@ Carga manual de 1.º, 2.º y 3.º puesto
 Los roles base son:
 
 ```ts
-type UserRole = 'CHECKIN' | 'SUPERVISOR' | 'ADMIN';
+type UserRole = 'CONSEJERO' | 'ADMIN';
 ```
 
 Los permisos deben ser explícitos para no llenar los componentes de condiciones dispersas:
@@ -376,20 +376,13 @@ interface Permissions {
 }
 ```
 
-### CHECKIN
-
-- buscar;
-- ver participante;
-- registrar llegada;
-- marcar materiales;
-- aceptar compañía recomendada;
-- ver Juegos en modo lectura.
-
-### SUPERVISOR
+### CONSEJERO
 
 - todo lo anterior;
 - resolver excepciones;
 - modificar compañías;
+- registrar y gestionar Check-in;
+- administrar juegos y resultados;
 - corregir resultados con motivo;
 - resolver impugnaciones y empates;
 - confirmar premios;
@@ -830,11 +823,11 @@ En offline se puede consultar el último estado conocido, pero no mostrar una as
 - RLS en todas las tablas con `event_id`.
 - Usuarios solo ven eventos autorizados.
 - `CHECKIN` no resuelve autorizaciones pendientes.
-- ADMIN y SUPERVISOR son los únicos que configuran o corrigen.
+- CONSEJERO y ADMIN son los únicos que configuran o corrigen.
 - No poner nombres, barrios ni datos personales en URLs.
 - No registrar tokens en consola.
-- No enviar datos sensibles al modo proyector.
-- El proyector muestra compañías, estados, tiempos y ranking, no apellidos completos de menores.
+- No enviar secretos, contraseñas ni tokens al modo proyector.
+- Para este evento reducido, el proyector puede mostrar nombres de personas si coordinación lo necesita; no se mostrarán datos sensibles adicionales.
 - Validar permisos en UI y en base de datos.
 - No usar claves secretas en variables `VITE_*`; las variables expuestas al navegador no son secretos.
 
