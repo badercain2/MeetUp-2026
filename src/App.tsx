@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import * as XLSX from 'xlsx'
 import { AlertTriangle, ArrowRight, BarChart3, CalendarDays, Camera, Check, CheckCheck, CheckCircle2, ChevronRight, CircleHelp, ClipboardCheck, Clock3, Cloud, Crown, Download, DoorOpen, Eye, FileUp, Flame, HeartHandshake, Home, ListChecks, LogOut, Menu, Medal, Mountain, PackageCheck, Pause, Play, Radio, Search, Settings2, ShieldAlert, Sparkles, Star, Trophy, UserRound, Users, Utensils, Wifi, WifiOff, X, Zap } from 'lucide-react'
 import { companyRepository, exceptionRepository, participantRepository, recommendCompany } from './data/repository'
 import { gameActivities, gameCompanyStates, gameRewards, tournamentMatches } from './data/gamesData'
@@ -64,6 +65,7 @@ function App() {
       <Route path="/games/tournament" element={<GamesPage role={role} companies={companies} section="tournament" />} />
       <Route path="/games/activity/:activityId" element={<GamesPage role={role} companies={companies} section="activity" />} />
       <Route path="/games/activity/:activityId/manage" element={<GamesPage role={role} companies={companies} section="activity" manage />} />
+      <Route path="/admin/data" element={role === 'ADMIN' ? <DataImportExportPage participants={participants} companies={companies} refresh={refresh} /> : <Navigate to="/checkin" replace />} />
       <Route path="/exceptions" element={<ExceptionsPage role={role} />} />
        <Route path="/admin" element={role === 'ADMIN' ? <AdminDashboard participants={participants} companies={companies} /> : <Navigate to="/checkin" replace />} />
       <Route path="*" element={<Navigate to="/checkin" replace />} />
@@ -256,6 +258,50 @@ function downloadWordReport(participants: Participant[], companies: Company[], m
   link.download = mode === 'present' ? 'meetup-2026-presentes.doc' : 'meetup-2026-lista-completa.doc'
   link.click()
   URL.revokeObjectURL(link.href)
+}
+
+function downloadCsv(filename: string, headers: string[], rows: Array<Array<string | number | boolean | null | undefined>>) {
+  const escape = (value: string | number | boolean | null | undefined) => `"${String(value ?? '').replace(/"/g, '""')}"`
+  const content = [headers, ...rows].map((row) => row.map(escape).join(',')).join('\n')
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(new Blob([`\ufeff${content}`], { type: 'text/csv;charset=utf-8' }))
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
+function DataImportExportPage({ participants, companies, refresh }: { participants: Participant[]; companies: Company[]; refresh: () => void }) {
+  const [preview, setPreview] = useState<Participant[]>([])
+  const [fileName, setFileName] = useState('')
+  const [errors, setErrors] = useState<string[]>([])
+  const [message, setMessage] = useState('')
+  const normalizeHeader = (value: string) => normalize(value).replace(/[^a-z0-9]/g, '')
+  const readValue = (row: Record<string, unknown>, names: string[]) => { const entry = Object.entries(row).find(([key]) => names.includes(normalizeHeader(key))); return String(entry?.[1] ?? '').trim() }
+  const importFile = async (file: File) => {
+    setFileName(file.name); setMessage(''); setErrors([])
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+      const invalid: string[] = []
+      const mapped = rows.map((row, index) => {
+        const firstName = readValue(row, ['nombre', 'firstname'])
+        const lastName = readValue(row, ['apellido', 'lastname'])
+        if (!firstName || !lastName) invalid.push(`Fila ${index + 2}: faltan Nombre o Apellido`)
+        const authorization = normalize(readValue(row, ['autorizacion', 'authorization']))
+        const member = normalize(readValue(row, ['miembro', 'ischurchmember', 'tipo']))
+        return { id: `import-${index}`, firstName, lastName, isChurchMember: !['no', 'visitante', 'false'].includes(member), stake: readValue(row, ['estaca', 'stake']), ward: readValue(row, ['barrio', 'ward', 'procedencia']), authorizationStatus: authorization.includes('confirm') || authorization === 'si' || authorization === 'tiene' ? 'confirmed' as const : authorization.includes('falt') || authorization === 'no' ? 'missing' as const : 'pending' as const, isYouthLeader: ['si', 'yes', 'true'].includes(normalize(readValue(row, ['esliderjoven', 'lider', 'isyouthleader']))), checkedIn: false, materials: { shirt: false, cardPack: false, credential: false }, isException: false } satisfies Participant
+      })
+      setErrors(invalid); setPreview(mapped)
+    } catch { setErrors(['No se pudo leer el archivo. Usá CSV, XLSX o XLS.']); setPreview([]) }
+  }
+  const confirmImport = () => { preview.forEach(({ id: _id, ...participant }) => participantRepository.add(participant)); refresh(); setMessage(`${preview.length} participantes preparados para importar.`); setPreview([]) }
+  const exportParticipants = () => downloadCsv('meetup-2026-participantes.csv', ['Nombre', 'Apellido', 'Estaca', 'Barrio', 'Autorizacion', 'Lider joven', 'Check-in'], participants.map((p) => [p.firstName, p.lastName, p.stake, p.ward, p.authorizationStatus, p.isYouthLeader, p.checkedIn]))
+  const exportCompanies = () => downloadCsv('meetup-2026-companias.csv', ['Numero', 'Nombre', 'Objetivo', 'Actual'], companies.map((c) => [c.number, c.name, c.targetSize, c.currentSize]))
+  const exportRewards = () => downloadCsv('meetup-2026-premios.csv', ['Clave', 'Actividad', 'Compania', 'Titulo', 'Estado', 'Cantidad'], gameRewards.map((r) => [r.rewardKey, r.activityId, r.companyId, r.title, r.status, r.quantity]))
+  const exportResults = () => downloadCsv('meetup-2026-resultados.csv', ['Actividad', 'Compania', 'Estado', 'Progreso', 'Tiempo oficial', 'Puntos'], gameCompanyStates.map((s) => [s.activityId, s.companyId, s.status, `${s.progressCurrent}/${s.progressTotal}`, s.officialTimeMs, s.points]))
+  const exportBackup = () => { const backup = { exportedAt: new Date().toISOString(), participants, companies, rewards: gameRewards, results: gameCompanyStates, exceptions: exceptionRepository.list() }; const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })); link.download = 'meetup-2026-respaldo.json'; link.click(); URL.revokeObjectURL(link.href) }
+  return <div className="standard-page"><PageTitle eyebrow="ADMIN · DATOS" title={<>Importar y <em>respaldar.</em></>} description="Cargá la lista real cuando llegue y descargá copias de seguridad del evento." action={<span className="role-pill"><Download size={15} /> Respaldo local</span>} /><section className="data-panel data-import-panel"><div><p className="eyebrow">IMPORTACIÓN</p><h2>Participantes CSV / XLSX</h2><p>La carga se valida en el navegador antes de agregar personas.</p></div><label className="file-picker"><FileUp size={17} /> Elegir archivo<input type="file" accept=".csv,.xlsx,.xls" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file) }} /></label>{fileName && <small className="file-name">{fileName} · {preview.length} filas válidas</small>}{errors.length > 0 && <div className="import-errors">{errors.slice(0, 5).map((error) => <span key={error}>{error}</span>)}</div>}{preview.length > 0 && <><div className="import-preview">{preview.slice(0, 5).map((person) => <span key={person.id}>{formatName(person)} · {person.stake || 'Sin estaca'}</span>)}</div><button className="button primary" onClick={confirmImport}>Confirmar importación ({preview.length})</button></>}</section><section className="data-panel"><div><p className="eyebrow">EXPORTACIÓN</p><h2>Respaldos del evento</h2><p>Descargá copias antes y durante MeetUP 2026.</p></div><div className="data-actions data-export-actions"><button className="button outline" onClick={exportParticipants}><Download size={16} /> Participantes</button><button className="button outline" onClick={exportCompanies}><Download size={16} /> Compañías</button><button className="button outline" onClick={exportRewards}><Download size={16} /> Premios</button><button className="button outline" onClick={exportResults}><Download size={16} /> Resultados</button><button className="button primary" onClick={exportBackup}><Download size={16} /> Respaldo completo JSON</button></div>{message && <p className="import-success">{message}</p>}</section></div>
 }
 
 function AdminDashboard({ participants, companies }: { participants: Participant[]; companies: Company[] }) { const target = companies[0]?.targetSize ?? 20; const present = participants.filter((item) => item.checkedIn).length; return <div className="standard-page"><PageTitle eyebrow="CONTROL DEL EVENTO" title={<>Panel de <em>administración.</em></>} description="Configuración y datos de MeetUP 2026." action={<span className="role-pill"><Settings2 size={15} /> ADMIN</span>} /><div className="admin-grid"><section className="admin-event"><p className="eyebrow">EVENTO ACTIVO</p><h2>MeetUP 2026</h2><p>Anda conmigo · Moisés 6:34</p><div className="event-details"><span>Objetivo por compañía <b>{target}</b></span><span>Número de compañías <b>{companies.length}</b></span></div></section><section className="admin-stats"><AdminStat label="Inscritos" value={participants.length} icon={Users} /><AdminStat label="Presentes" value={present} icon={CheckCircle2} /><AdminStat label="Pendientes" value={participants.length - present} icon={Home} /><AdminStat label="Excepciones" value={participants.filter((item) => item.isException).length} icon={AlertTriangle} /></section></div><section className="data-panel"><div><p className="eyebrow">SALIDA DE DATOS</p><h2>Generar informe Word</h2><p>Descargá un archivo con todos los datos y el total de personas.</p></div><div className="data-actions"><button className="button primary" onClick={() => downloadWordReport(participants, companies, 'present')}><Download size={17} /> Presentes ({present})</button><button className="button outline" onClick={() => downloadWordReport(participants, companies, 'all')}><Download size={17} /> Lista completa</button></div></section></div> }
