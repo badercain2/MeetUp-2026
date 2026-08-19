@@ -97,10 +97,11 @@ export async function loadRemoteGameBoard(eventId: string): Promise<RemoteGameBo
     const activityKey = activityKeyById.get(activity.id)
     if (!activityKey) continue
     const states = (companies ?? []).map((company) => {
+      const uiCompanyId = `c${company.number}`
       const remote = (remoteStates ?? []).find((state) => state.activity_id === activity.id && state.company_id === company.id)
       return remote ? {
         activityId: activityKey,
-        companyId: company.id,
+        companyId: uiCompanyId,
         status: remote.status as CompanyActivityState['status'],
         progressCurrent: remote.progress_current,
         progressTotal: remote.progress_total || activityProgressTotals[activityKey] || 0,
@@ -111,7 +112,7 @@ export async function loadRemoteGameBoard(eventId: string): Promise<RemoteGameBo
         lastUpdate: remote.updated_at ? new Date(remote.updated_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : 'pendiente'
       } : {
         activityId: activityKey,
-        companyId: company.id,
+        companyId: uiCompanyId,
         status: 'NOT_STARTED' as const,
         progressCurrent: 0,
         progressTotal: activityProgressTotals[activityKey] || 0,
@@ -143,11 +144,15 @@ export async function loadRemoteGameBoard(eventId: string): Promise<RemoteGameBo
 }
 
 export async function saveRemoteGameStates(eventId: string, activityId: string, states: CompanyActivityState[]) {
-  const { data: activity, error: activityError } = await supabase.from('activities').select('id').eq('event_id', eventId).eq('order_number', activityOrderById[activityId]).single()
-  if (activityError) throw activityError
+  const [{ data: activity, error: activityError }, { data: companies, error: companiesError }] = await Promise.all([
+    supabase.from('activities').select('id').eq('event_id', eventId).eq('order_number', activityOrderById[activityId]).single(),
+    supabase.from('companies').select('id, number').eq('event_id', eventId)
+  ])
+  if (activityError || companiesError) throw activityError ?? companiesError
+  const companyIdByUiId = new Map((companies ?? []).map((company) => [`c${company.number}`, company.id]))
   const rows = states.map((state) => ({
     activity_id: activity.id,
-    company_id: state.companyId,
+    company_id: companyIdByUiId.get(state.companyId) ?? state.companyId,
     status: state.status,
     progress_current: state.progressCurrent,
     progress_total: state.progressTotal,

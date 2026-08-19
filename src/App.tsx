@@ -389,12 +389,12 @@ function GamesPage({ role, companies, section = 'dashboard', projector = false, 
     setGeneralRunning(false)
   }, [activeId, remoteBoard])
   const activeActivity = gameActivities.find((activity) => activity.id === activeId) ?? gameActivities[3]
-  const companyName = (id?: string) => companies.find((company) => company.id === id)?.name ?? id?.toUpperCase() ?? 'Compañía'
+  const companyName = (id?: string) => companies.find((company) => company.id === id)?.name ?? companies.find((company) => company.number === Number(id?.replace(/^c/, '')))?.name ?? id?.toUpperCase() ?? 'Compañía'
   const changeActivity = (id: string) => { setActiveId(id); navigate(id === 'masters' ? '/games/tournament' : `/games/activity/${id}`) }
   const updateReward = (reward: GameReward) => { const next: RewardStatus = reward.status === 'PENDING' ? 'READY' : reward.status === 'READY' ? 'DELIVERED' : reward.status; setRewardState((items) => items.map((item) => item.id === reward.id ? { ...item, status: next, deliveredAt: next === 'DELIVERED' ? 'Ahora' : item.deliveredAt, deliveredBy: next === 'DELIVERED' ? 'Mariana' : item.deliveredBy } : item)) }
   const toggleCompanyTimer = (companyId: string) => { if (!canManage) return; setRunningCompanies((running) => ({ ...running, [companyId]: !running[companyId] })) }
   const toggleGeneralTimer = () => { if (canManage) setGeneralRunning((running) => !running) }
-  const persistStates = (next: CompanyActivityState[]) => { if (remoteBoard && next.length) void saveRemoteGameStates(import.meta.env.VITE_EVENT_ID, activeId, next).then(refreshRemoteBoard).catch((error) => console.error('No se pudo guardar el estado del juego:', error)) }
+  const persistStates = (next: CompanyActivityState[]) => { if (remoteBoard && next.length) void saveRemoteGameStates(import.meta.env.VITE_EVENT_ID, activeId, next).catch((error) => console.error('No se pudo guardar el estado del juego:', error)) }
   const updateStates = (updater: (items: CompanyActivityState[]) => CompanyActivityState[]) => setStates((items) => { const next = updater(items); persistStates(next); return next })
   const resetRedSeaChecklists = () => { if (!canManage || activeId !== 'red-sea') return; setGeneralRunning(false); setGeneralSeconds((gameActivities.find((activity) => activity.id === 'red-sea')?.durationMinutes ?? 45) * 60); updateStates((items) => items.map((state) => ({ ...state, progressCurrent: 0, status: 'NOT_STARTED', officialTimeMs: undefined, elapsedMs: undefined, lastUpdate: 'reiniciado' }))) }
   const elapsedSeconds = () => ((gameActivities.find((activity) => activity.id === activeId)?.durationMinutes ?? 45) * 60) - generalSeconds
