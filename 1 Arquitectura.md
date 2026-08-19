@@ -7,7 +7,7 @@
 - Fuente: `1 CONTEXTO CHARLA.md`, manual de actividades y frontend mock existente
 - Backend actual: ninguno, frontend mock
 - Backend objetivo: Supabase PostgreSQL + Auth + Realtime
-- Hosting objetivo: Cloudflare Pages
+- Hosting objetivo: GitHub Pages mediante GitHub Actions
 - Costo de infraestructura objetivo: `$0/mes` usando únicamente planes gratuitos y sin dominio personalizado
 
 ## Resumen de la Estrategia Gratuita
@@ -15,9 +15,11 @@
 El proyecto se diseña deliberadamente para no pagar servidor, hosting, base de datos ni dominio durante la primera etapa.
 
 ```text
-GitHub privado
-      ↓ despliegue automático
-Cloudflare Pages Free
+GitHub público
+      ↓ push a main
+GitHub Actions
+      ↓ lint + build + deploy
+GitHub Pages
       ↓ HTTPS
 React + TypeScript + PWA
       ↓ Auth, PostgreSQL y Realtime
@@ -25,6 +27,23 @@ Supabase Free
 ```
 
 La computadora del organizador no necesita quedar encendida. Los celulares, tablets, notebooks y el proyector acceden a la misma aplicación publicada en internet. Excel se utiliza como archivo de importación y respaldo, no como base de datos compartida.
+
+La arquitectura final de publicación es:
+
+```text
+Desarrollador / Codex
+        ↓
+GitHub público
+        ↓
+GitHub Actions
+        ↓
+GitHub Pages
+        ↓
+React + TypeScript + Vite ejecutándose en el navegador
+        ↓
+Supabase
+(PostgreSQL + Auth + Realtime)
+```
 
 Esta decisión evita:
 
@@ -36,7 +55,7 @@ Esta decisión evita:
 
 El costo de infraestructura puede mantenerse en `$0/mes` para este evento si se cumplen las condiciones de la sección 13. Los planes gratuitos tienen límites y pueden cambiar. Antes del evento se debe verificar que Supabase esté activo, probar los límites y descargar respaldos CSV/XLSX.
 
-Este `$0` no incluye el costo de internet o datos móviles del lugar, ni el costo opcional de un dominio personalizado. La aplicación no necesita comprar ninguno de ellos: puede utilizar la URL gratuita `*.pages.dev` y la conexión Wi-Fi o hotspot que ya esté disponible.
+Este `$0` no incluye el costo de internet o datos móviles del lugar, ni el costo opcional de un dominio personalizado. La aplicación puede utilizar la URL gratuita de GitHub Pages `https://badercain2.github.io/MeetUp-2026/` y la conexión Wi-Fi o hotspot que ya esté disponible.
 
 Este documento convierte el contexto funcional en una arquitectura implementable. No reemplaza las reglas del manual: las actividades, premios y puntajes deben seguir la fuente de verdad del evento.
 
@@ -46,14 +65,14 @@ La siguiente configuración fue contrastada con la documentación oficial el `10
 
 | Parte | Servicio/configuración | Límite gratuito relevante | Costo previsto |
 |---|---|---|---:|
-| Página web | Cloudflare Pages Free, sitio estático Vite | 500 builds/mes, 20.000 archivos, 25 MiB por archivo, 100 proyectos por cuenta | `$0` |
+| CI/CD | GitHub Actions | Ejecutar lint, build y despliegue automáticamente para repositorio público | `$0` |
 | Base de datos | Supabase Free | 500 MB de PostgreSQL, 5 GB de egress y 5 GB de egress cacheado | `$0` |
 | Login | Supabase Auth Free | 50.000 usuarios activos mensuales | `$0` |
 | Actualización entre dispositivos | Supabase Realtime Free | 200 conexiones simultáneas, 100 mensajes/segundo y 2 millones de mensajes/mes | `$0` |
-| PWA | Frontend propio | Se entrega dentro del sitio de Cloudflare Pages | `$0` |
+| PWA | Frontend propio | Se entrega dentro del sitio de GitHub Pages | `$0` |
 | CSV/XLSX | Librería ejecutada en el navegador | No requiere servidor adicional | `$0` |
-| Código privado | GitHub Free | Repositorios privados y colaboradores incluidos | `$0` |
-| Dominio | URL `*.pages.dev` | No se compra dominio personalizado | `$0` |
+| Hosting | GitHub Pages | Servir gratuitamente el frontend estático | `$0` |
+| Código | GitHub público | Versionado, colaboración y fuente del despliegue | `$0` |
 | Computadora propia | No se usa como servidor | No debe quedar encendida | `$0` |
 
 Para este evento, con cientos de participantes y alrededor de 20 dispositivos de encargados, el uso previsto queda ampliamente por debajo de esos límites. La arquitectura no puede prometer que los planes externos serán gratuitos para siempre, pero sí queda configurada para no activar cargos por servicios adicionales.
@@ -62,12 +81,12 @@ Para este evento, con cientos de participantes y alrededor de 20 dispositivos de
 
 - Mantener un solo proyecto Supabase Free activo para producción; el plan Free permite hasta 2 proyectos activos.
 - No activar un plan pago, add-on, PITR, branching, dominio personalizado ni funciones que requieran facturación.
-- Usar solamente el sitio estático de Cloudflare Pages; no agregar Pages Functions, Workers, R2, KV ni Durable Objects.
+- Usar solamente GitHub Pages para servir el frontend estático y GitHub Actions como pipeline CI/CD oficial.
 - Crear previamente las cuentas de encargados con email y contraseña, confirmar cada cuenta y probar el login; no usar SMS, MFA por teléfono, SMTP externo ni recuperación de contraseña durante el evento.
 - No habilitar registro público. La aplicación usará `signInWithPassword` y Supabase Auth administrará las contraseñas.
 - Importar y exportar CSV/XLSX en el navegador. No guardar archivos de Excel en Supabase Storage.
 - Ejecutar la asignación transaccional como función PostgreSQL/RPC, no como un backend o servidor separado.
-- No usar GitHub Actions para el despliegue: Cloudflare Pages se conecta directamente al repositorio privado.
+- Usar GitHub Actions como pipeline CI/CD oficial del proyecto. Cada push a `main` debe ejecutar validaciones y, si pasan, desplegar automáticamente GitHub Pages.
 - Verificar en el panel de Supabase que no se haya seleccionado Pro ni ningún add-on.
 
 ## 1. Decisión Arquitectónica
@@ -80,7 +99,7 @@ Navegador de celular, tablet, notebook o proyector
                     | HTTPS
                     v
           React + TypeScript + Vite
-          Cloudflare Pages, gratuito
+          GitHub Pages, gratuito
                     |
                     | Supabase SDK / REST / Realtime
                     v
@@ -100,8 +119,9 @@ Navegador de celular, tablet, notebook o proyector
 | Datos | Supabase PostgreSQL | Base central gratuita y transacciones |
 | Login | Supabase Auth | Usuarios y sesiones sin backend propio |
 | Tiempo real | Supabase Realtime | Cambios entre varios dispositivos |
-| Hosting | Cloudflare Pages | Publicación gratuita sin dejar una PC encendida |
-| Código | GitHub privado | Versionado, colaboración y despliegue |
+| CI/CD | GitHub Actions | Ejecutar lint, build y despliegue automáticamente |
+| Hosting | GitHub Pages | Servir gratuitamente el frontend estático |
+| Código | GitHub público | Versionado, colaboración y fuente del despliegue |
 | Importación | CSV/XLSX en frontend | Entrada y respaldo del evento sin backend adicional |
 | Exportación | XLSX/CSV | Respaldo y entrega de listados |
 
@@ -141,7 +161,7 @@ No conviene escribir el frontend completo en C++. Los navegadores no ejecutan C+
 - routing;
 - PWA;
 - integración con Supabase Auth y Realtime;
-- despliegue en Cloudflare Pages;
+- despliegue en GitHub Pages;
 - mantenimiento de una UI móvil rápida.
 
 Por eso el frontend permanecerá en `React + TypeScript` y el proyecto no incorporará C++ en producción.
@@ -776,7 +796,7 @@ Antes de abrir el check-in:
 - descargar la lista inicial en la notebook y en otro dispositivo;
 - probar el login desde varios celulares/tablets;
 - verificar que el proyecto Supabase esté activo;
-- probar la URL `*.pages.dev` desde la red del lugar;
+- probar la URL `https://badercain2.github.io/MeetUp-2026/` desde la red del lugar;
 - tener disponible un hotspot existente como alternativa de conectividad.
 
 Durante el evento:
@@ -861,21 +881,46 @@ El modo proyector no debe depender de acciones de administrador ni presentar ran
 
 ### GitHub
 
-- repositorio privado;
+- repositorio público;
 - ramas `main` y `develop` opcionales;
 - pull requests para cambios importantes;
-- no depende de GitHub Actions para publicar;
+- GitHub Actions ejecuta lint, build y despliegue en cada push a `main`;
 - nunca guardar claves secretas en el repositorio.
 
-### Cloudflare Pages
+### GitHub Actions y GitHub Pages
 
-- conectar el repositorio;
-- build command: `npm run build`;
-- output directory: `dist`;
-- variables públicas solamente para URL y anon key de Supabase;
-- no requiere servidor encendido en casa;
-- usar la URL gratuita `*.pages.dev`;
-- mantener el despliegue como sitio estático, sin Pages Functions, Workers ni otros productos pagos.
+- ejecutar `npm ci`;
+- ejecutar `npm run lint`;
+- ejecutar `npm run build`;
+- subir únicamente `dist/` como artifact de Pages;
+- desplegar automáticamente a GitHub Pages;
+- configurar `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` y `VITE_EVENT_ID` mediante Variables o Secrets del repositorio;
+- publicar en `https://badercain2.github.io/MeetUp-2026/`;
+- no requiere servidor encendido en casa.
+
+El workflow oficial es `.github/workflows/deploy-pages.yml` y ejecuta:
+
+```text
+push a main
+    ↓
+checkout
+    ↓
+setup Node
+    ↓
+npm ci
+    ↓
+npm run lint
+    ↓
+npm run build
+    ↓
+subir dist como artifact de Pages
+    ↓
+deploy a GitHub Pages
+```
+
+GitHub Pages debe publicar únicamente el contenido generado en `dist/`. El repositorio debe configurar la fuente de Pages como `GitHub Actions`.
+
+Como el proyecto se publica como Project Page bajo `/MeetUp-2026/`, Vite usa `base: '/MeetUp-2026/'` durante GitHub Actions y `/` durante el desarrollo local. React Router utiliza el mismo `basename`. El manifest, el service worker y las rutas de assets deben conservar ese prefijo.
 
 ### Supabase Free
 
@@ -899,8 +944,8 @@ Fuentes oficiales revisadas:
 - [Supabase Pricing](https://supabase.com/pricing)
 - [Supabase Production Checklist](https://supabase.com/docs/guides/platform/going-into-prod)
 - [Supabase Realtime Limits](https://supabase.com/docs/guides/realtime/limits)
-- [Cloudflare Pages Limits](https://developers.cloudflare.com/pages/platform/limits/)
-- [Cloudflare Pages Git Integration](https://developers.cloudflare.com/pages/configuration/git-integration/)
+- [GitHub Actions](https://docs.github.com/en/actions)
+- [GitHub Pages](https://docs.github.com/en/pages)
 - [GitHub Plans](https://docs.github.com/en/get-started/learning-about-github/githubs-plans)
 
 Los precios, límites y condiciones de planes gratuitos pueden cambiar. La arquitectura no debe prometer capacidad comercial permanente; debe verificarse antes de usarla en producción.
@@ -911,7 +956,7 @@ Los precios, límites y condiciones de planes gratuitos pueden cambiar. La arqui
 
 ```env
 VITE_SUPABASE_URL=
-VITE_SUPABASE_ANON_KEY=
+VITE_SUPABASE_PUBLISHABLE_KEY=
 VITE_EVENT_ID=
 ```
 
@@ -919,11 +964,13 @@ No incluir:
 
 ```env
 SUPABASE_SERVICE_ROLE_KEY
+sb_secret_*
 DATABASE_PASSWORD
 JWT_SECRET
+.env
 ```
 
-Las claves privadas solo pueden existir en funciones/server-side protegidos.
+Las variables `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` y `VITE_EVENT_ID` deben configurarse en GitHub Actions mediante Repository Variables o Secrets. Las variables `VITE_*` son públicas porque llegan al navegador; nunca incluir secretos de servidor ni el archivo `.env` real en GitHub.
 
 ## 15. Fases de Implementación
 
@@ -992,7 +1039,7 @@ Las claves privadas solo pueden existir en funciones/server-side protegidos.
 
 La aplicación no incorpora C++ ni WebAssembly. Las reglas de asignación, validación, ranking y puntajes se implementarán en TypeScript y en funciones PostgreSQL/RPC cuando necesiten transacciones.
 
-Esta decisión evita toolchains, servidores propios y componentes adicionales. Mantiene el despliegue compatible con el sitio estático gratuito de Cloudflare Pages y con Supabase Free.
+Esta decisión evita toolchains, servidores propios y componentes adicionales. Mantiene el despliegue compatible con el sitio estático gratuito de GitHub Pages y con Supabase Free.
 
 ## 17. Pruebas Obligatorias
 
@@ -1048,6 +1095,11 @@ El sistema puede considerarse listo para una prueba real cuando:
 
 - `npm install` y `npm run dev` funcionan;
 - `npm run lint` y `npm run build` pasan;
+- workflow de GitHub Actions exitoso;
+- lint exitoso dentro de GitHub Actions;
+- build exitoso dentro de GitHub Actions;
+- deploy exitoso a GitHub Pages;
+- rutas y PWA funcionando desde `/MeetUp-2026/`;
 - las rutas protegidas requieren login;
 - la base usa RLS;
 - el check-in es transaccional;

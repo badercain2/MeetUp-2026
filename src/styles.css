@@ -47,7 +47,7 @@ em { font-family:'Cinzel',Georgia,serif; font-weight:600; font-style:normal; col
 .page-intro { position:relative; }
 .page-intro:after { content:''; position:absolute; z-index:-1; right:8%; bottom:-22px; width:230px; height:1px; background:linear-gradient(90deg,transparent,var(--gold)); opacity:.6; }
 .company-summary { position:relative; overflow:hidden; }
-.company-summary:after { content:''; position:absolute; right:15px; bottom:-39px; width:130px; height:130px; background:url('/assets/tablets.svg') center/contain no-repeat; opacity:.16; transform:rotate(10deg); pointer-events:none; }
+.company-summary:after { content:''; position:absolute; right:15px; bottom:-39px; width:130px; height:130px; background:radial-gradient(circle, rgba(255,255,255,.12), transparent 68%); opacity:.16; transform:rotate(10deg); pointer-events:none; }
 .company-summary > div { position:relative; z-index:1; }
 
 @media (max-width:760px) {
