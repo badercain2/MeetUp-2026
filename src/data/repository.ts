@@ -227,7 +227,13 @@ export async function registerCheckin(participantId: string, companyId: string |
 
 export async function revertCheckin(participantId: string) {
   const { data, error } = await supabase.rpc('revert_checkin', { p_participant_id: participantId })
-  if (error) throw error
+  if (error) {
+    if (error.code === '42883' || error.message.includes('revert_checkin')) throw new Error('Supabase todavía no tiene aplicada la migración de deshacer check-in (00009/00010).')
+    throw error
+  }
+  const { data: remainingCheckins, error: verificationError } = await supabase.from('checkins').select('id').eq('participant_id', participantId).limit(1)
+  if (verificationError) throw verificationError
+  if (remainingCheckins?.length) throw new Error('La base confirmó la operación, pero el check-in todavía aparece registrado. Revisá las migraciones 00009/00010 en Supabase.')
   return data as { participant_id: string; company_id: string }
 }
 
