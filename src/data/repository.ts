@@ -205,7 +205,7 @@ export async function hydrateRepositories(eventId: string) {
   const mappedParticipants: Participant[] = remoteParticipants.map((participant) => {
     const checkin = checkinByParticipant.get(participant.id)
     const delivery = materialsByParticipant.get(participant.id)
-    return { id: participant.id, firstName: participant.first_name, lastName: participant.last_name, isChurchMember: true, stake: participant.stake, ward: participant.ward, authorizationStatus: participant.authorization_status, isYouthLeader: participant.is_youth_leader, checkedIn: Boolean(checkin), checkedInAt: checkin?.checked_in_at ? new Date(checkin.checked_in_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : undefined, checkedInBy: checkin?.checked_in_by ?? undefined, companyId: membershipByParticipant.get(participant.id), materials: { shirt: Boolean(delivery?.shirt_delivered), cardPack: Boolean(delivery?.card_pack_delivered), credential: Boolean(delivery?.credential_delivered) }, isException: participant.is_exception, notes: participant.notes, medicalInfo: participant.medical_info ?? undefined, shirtSize: participant.shirt_size ?? undefined }
+    return { id: participant.id, firstName: participant.first_name, lastName: participant.last_name, isChurchMember: participant.is_church_member, stake: participant.stake, ward: participant.ward, authorizationStatus: participant.authorization_status, isYouthLeader: participant.is_youth_leader, checkedIn: Boolean(checkin), checkedInAt: checkin?.checked_in_at ? new Date(checkin.checked_in_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : undefined, checkedInBy: checkin?.checked_in_by ?? undefined, companyId: membershipByParticipant.get(participant.id), materials: { shirt: Boolean(delivery?.shirt_delivered), cardPack: Boolean(delivery?.card_pack_delivered), credential: Boolean(delivery?.credential_delivered) }, isException: participant.is_exception, notes: participant.notes, medicalInfo: participant.medical_info ?? undefined, shirtSize: participant.shirt_size ?? undefined }
   })
   const mappedCompanies: Company[] = remoteCompanies.map((company) => ({ id: company.id, number: company.number, name: company.name, targetSize: company.target_size, currentSize: (memberships ?? []).filter((membership) => membership.company_id === company.id).length, leaderParticipantId: company.leader_participant_id ?? undefined, theme: { colorToken: company.theme_color_token as Company['theme']['colorToken'], icon: company.theme_icon as Company['theme']['icon'] } }))
   participantRepository.replace(mappedParticipants)
@@ -225,6 +225,33 @@ export async function registerCheckin(participantId: string, companyId: string |
   return data as { company_id: string; checked_in_at: string }
 }
 
+export async function revertCheckin(participantId: string) {
+  const { data, error } = await supabase.rpc('revert_checkin', { p_participant_id: participantId })
+  if (error) throw error
+  return data as { participant_id: string; company_id: string }
+}
+
+export async function updateParticipantAuthorization(participantId: string, authorizationStatus: Participant['authorizationStatus']) {
+  const { error } = await supabase
+    .from('participants')
+    .update({ authorization_status: authorizationStatus, is_exception: authorizationStatus !== 'confirmed' })
+    .eq('id', participantId)
+  if (error) throw error
+}
+
+export async function createVisitor(eventId: string, input: { firstName: string; lastName: string; origin: string }) {
+  const { data, error } = await supabase
+    .from('participants')
+    .insert({ event_id: eventId, first_name: input.firstName, last_name: input.lastName, stake: 'Visitante', ward: input.origin || 'Procedencia no registrada', is_church_member: false, authorization_status: 'pending', is_youth_leader: false, is_exception: false, notes: 'Visitante agregado en el evento.' })
+    .select('id')
+    .single()
+  if (error) throw error
+  await hydrateRepositories(eventId)
+  const participant = participantRepository.findById(data.id)
+  if (!participant) throw new Error('No se pudo cargar el visitante creado.')
+  return participant
+}
+
 export async function importParticipants(eventId: string, participants: Participant[]) {
   const { data: existing, error: existingError } = await supabase
     .from('participants')
@@ -241,6 +268,7 @@ export async function importParticipants(eventId: string, participants: Particip
       stake: participant.stake,
       ward: participant.ward,
       is_youth_leader: participant.isYouthLeader,
+      is_church_member: participant.isChurchMember,
       authorization_status: participant.authorizationStatus,
       is_exception: participant.isException,
       notes: participant.notes ?? null,

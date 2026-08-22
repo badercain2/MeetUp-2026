@@ -8,7 +8,6 @@
 - `/games/live`: modo proyector. No tiene sidebar ni controles administrativos y evita datos personales.
 - `/games/rewards`: Centro de Premios. Cada recompensa avanza de Pendiente a Listo y luego a Entregado.
 - `/games/tournament`: bracket del Torneo de Maestros y partidos en vivo.
-- `/games/overall`: resultados de actividades y clasificación general separadas.
 
 ## Reglas que se digitalizan
 

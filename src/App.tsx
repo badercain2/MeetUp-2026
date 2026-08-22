@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { AlertTriangle, ArrowRight, BarChart3, CalendarDays, Camera, Check, CheckCheck, CheckCircle2, ChevronRight, CircleHelp, ClipboardCheck, Clock3, Cloud, Crown, Download, DoorOpen, Eye, FileUp, Flame, HeartHandshake, Home, ListChecks, LogOut, Menu, Medal, Mountain, PackageCheck, Pause, Play, Radio, Search, Settings2, ShieldAlert, Sparkles, Star, Trophy, UserRound, Users, Utensils, Wifi, WifiOff, X, Zap } from 'lucide-react'
-import { companyRepository, exceptionRepository, hydrateRepositories, importParticipants, loadRemoteGameBoard, participantRepository, recommendCompany, registerCheckin, saveRemoteGameStates, saveRemoteMusicPoints, saveRemoteTournament, updateParticipantMedicalInfo, type RemoteGameBoard, type RemoteTournamentBoard } from './data/repository'
+import { companyRepository, createVisitor, exceptionRepository, hydrateRepositories, importParticipants, loadRemoteGameBoard, participantRepository, recommendCompany, registerCheckin, revertCheckin, saveRemoteGameStates, saveRemoteMusicPoints, saveRemoteTournament, updateParticipantAuthorization, updateParticipantMedicalInfo, type RemoteGameBoard, type RemoteTournamentBoard } from './data/repository'
 import { gameActivities, gameCompanyStates, gameRewards, tournamentMatches } from './data/gamesData'
 import { supabase } from './data/supabase/client'
 import { scheduleItems } from './data/scheduleData'
@@ -62,9 +62,7 @@ function App() {
       <Route path="/participants" element={<ParticipantDirectory participants={participants} companies={companies} refresh={refresh} />} />
       <Route path="/companies" element={<CompaniesPage participants={participants} companies={companies} />} />
       <Route path="/games" element={<GamesPage role={role} companies={companies} section="activity" />} />
-      <Route path="/games/overview" element={<GamesPage role={role} companies={companies} section="dashboard" />} />
       <Route path="/games/live" element={<GamesPage role={role} companies={companies} projector />} />
-      <Route path="/games/overall" element={<GamesPage role={role} companies={companies} section="overall" />} />
       <Route path="/games/tournament" element={<GamesPage role={role} companies={companies} section="tournament" />} />
       <Route path="/games/activity/:activityId" element={<GamesPage role={role} companies={companies} section="activity" />} />
       <Route path="/games/activity/:activityId/manage" element={<GamesPage role={role} companies={companies} section="activity" manage />} />
@@ -133,6 +131,8 @@ function CheckInPage({ participants, companies, refresh }: { participants: Parti
   const [query, setQuery] = useState('')
   const [focused, setFocused] = useState(false)
   const [showGuestForm, setShowGuestForm] = useState(false)
+  const [undoingCheckin, setUndoingCheckin] = useState(false)
+  const [undoError, setUndoError] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const present = participants.filter((person) => person.checkedIn).length
   const pending = participants.length - present
@@ -144,7 +144,25 @@ function CheckInPage({ participants, companies, refresh }: { participants: Parti
     if (terms.join('').length < 2) return []
     return participants.filter((person) => { const haystack = normalize(`${formatName(person)} ${person.stake} ${person.ward}`); return terms.every((term) => haystack.includes(term)) }).slice(0, 8)
   }, [query, participants])
-  const handleSuccess = (participant: Participant, company: Company) => { const time = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }); setSuccess({ participant, company, time }); setSelected(null); refresh() }
+  const handleSuccess = (participant: Participant, company: Company) => { const time = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }); setUndoError(''); setSuccess({ participant, company, time }); setSelected(null); refresh() }
+  const handleUndo = async () => {
+    if (!success || undoingCheckin) return
+    if (!window.confirm(`¿Deshacer el check-in de ${formatName(success.participant)}? La persona no se elimina; solo se quitarán su llegada, materiales y compañía actual.`)) return
+    setUndoingCheckin(true)
+    setUndoError('')
+    try {
+      await revertCheckin(success.participant.id)
+      await hydrateRepositories(import.meta.env.VITE_EVENT_ID)
+      refresh()
+      setSuccess(null)
+      setQuery('')
+      setTimeout(() => searchRef.current?.focus(), 50)
+    } catch (error) {
+      setUndoError(error instanceof Error ? error.message : 'No se pudo revertir el check-in.')
+    } finally {
+      setUndoingCheckin(false)
+    }
+  }
   const handleGuestAdded = (participant: Participant) => { setShowGuestForm(false); refresh(); setQuery(''); setSelected(participant) }
   return <div className="checkin-page">
      <section className="page-intro"><div><p className="eyebrow">DOMINGO · 14 DE JUNIO, 2026</p><h1>Hagamos que cada <em>llegada</em><br className="desktop-only" /> cuente.</h1><p className="intro-copy">Busca a un participante para comenzar su check-in.</p></div><div className="intro-quote"><img src={assetPath('/assets/cloud-fire.svg')} alt="Símbolo de nube y fuego" /><span>ANDA CONMIGO<br /><small>Moisés 6:34</small></span></div></section>
@@ -156,8 +174,8 @@ function CheckInPage({ participants, companies, refresh }: { participants: Parti
        {query && <div className="results-area"><div className="result-heading"><span>{results.length ? `${results.length} resultados` : 'Sin coincidencias'}</span>{results.length > 0 && <span className="result-hint">Selecciona para continuar</span>}</div>{results.length ? results.map((person) => <ParticipantCard key={person.id} participant={person} onSelect={setSelected} />) : <EmptySearch onRetry={() => setQuery('')} onAdd={() => setShowGuestForm(true)} />}</div>}
       {!query && <div className="search-empty"><div className="empty-orbit"><Search size={25} /></div><h3>Listos para recibirlos</h3><p>Escribe un nombre para encontrar<br />rápidamente a tu participante.</p></div>}
     </div><LiveCompanies companies={companies} /></div>
-     {selected && <ParticipantDetails participant={selected} companies={companies} onClose={() => setSelected(null)} onCompanyChanged={refresh} onSuccess={handleSuccess} />}
-     {success && <SuccessOverlay result={success} onNext={() => { setSuccess(null); setQuery(''); setTimeout(() => searchRef.current?.focus(), 50) }} />}
+      {selected && <ParticipantDetails participant={selected} companies={companies} onClose={() => setSelected(null)} onCompanyChanged={refresh} onReverted={() => { refresh(); setSelected(null) }} onSuccess={handleSuccess} />}
+      {success && <SuccessOverlay result={success} onNext={() => { setSuccess(null); setQuery(''); setUndoError(''); setTimeout(() => searchRef.current?.focus(), 50) }} onUndo={() => void handleUndo()} undoing={undoingCheckin} error={undoError} />}
      {showGuestForm && <GuestForm companies={companies} onClose={() => setShowGuestForm(false)} onAdded={handleGuestAdded} />}
    </div>
 }
@@ -172,44 +190,42 @@ function GuestForm({ companies, onClose, onAdded }: { companies: Company[]; onCl
   const [lastName, setLastName] = useState('')
   const [origin, setOrigin] = useState('')
   const [companyId, setCompanyId] = useState(companies.slice().sort((a, b) => a.currentSize - b.currentSize)[0]?.id ?? '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   const canSubmit = firstName.trim().length > 1 && lastName.trim().length > 1 && Boolean(companyId)
-  const submit = (event: React.FormEvent) => {
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!canSubmit) return
-    const participant = participantRepository.add({
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      isChurchMember: false,
-      stake: 'Visitante',
-      ward: origin.trim() || 'Procedencia no registrada',
-      authorizationStatus: 'confirmed',
-      isYouthLeader: false,
-      checkedIn: false,
-      companyId,
-      materials: { shirt: false, cardPack: false, credential: false },
-      isException: false,
-      notes: 'Visitante agregado en el evento.'
-    })
-    onAdded(participant)
+    if (!canSubmit || saving) return
+    setSaving(true)
+    setError('')
+    try {
+      const participant = await createVisitor(import.meta.env.VITE_EVENT_ID, { firstName: firstName.trim(), lastName: lastName.trim(), origin: origin.trim() })
+      onAdded({ ...participant, companyId })
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'No se pudo agregar el visitante.')
+    } finally {
+      setSaving(false)
+    }
   }
-  return <div className="guest-form-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="guest-form"><header className="guest-form-header"><div><p className="eyebrow light">NUEVO REGISTRO</p><h2>Agregar visitante</h2><p>Se incorpora al evento y queda asignado a una compañía.</p></div><button className="icon-button close-button" aria-label="Cerrar formulario" onClick={onClose}><X size={20} /></button></header><form onSubmit={submit}><div className="guest-form-body"><div className="guest-form-grid"><label>Nombre<input autoFocus value={firstName} onChange={(event) => setFirstName(event.target.value)} placeholder="Ej. Ana" /></label><label>Apellido<input value={lastName} onChange={(event) => setLastName(event.target.value)} placeholder="Ej. Pérez" /></label></div><label>Procedencia o barrio <span className="optional-label">opcional</span><input value={origin} onChange={(event) => setOrigin(event.target.value)} placeholder="Ej. Invitado de Barrio Centro" /></label><label>Compañía<select value={companyId} onChange={(event) => setCompanyId(event.target.value)}>{companies.slice().sort((a, b) => a.currentSize - b.currentSize).map((company) => <option key={company.id} value={company.id}>{company.name} · {company.currentSize}/{company.targetSize}</option>)}</select></label><p className="guest-form-note"><UserRound size={16} /> Se registrará como visitante, sin exigir datos de miembro.</p></div><footer className="guest-form-footer"><button type="button" className="button outline" onClick={onClose}>Cancelar</button><button type="submit" className="button primary" disabled={!canSubmit}>Agregar y continuar <ArrowRight size={16} /></button></footer></form></section></div>
+  return <div className="guest-form-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="guest-form"><header className="guest-form-header"><div><p className="eyebrow light">NUEVO REGISTRO</p><h2>Agregar visitante</h2><p>Se incorpora al evento y continúa por el mismo check-in.</p></div><button className="icon-button close-button" aria-label="Cerrar formulario" onClick={onClose}><X size={20} /></button></header><form onSubmit={(event) => void submit(event)}><div className="guest-form-body"><div className="guest-form-grid"><label>Nombre<input autoFocus value={firstName} onChange={(event) => setFirstName(event.target.value)} placeholder="Ej. Ana" /></label><label>Apellido<input value={lastName} onChange={(event) => setLastName(event.target.value)} placeholder="Ej. Pérez" /></label></div><label>Procedencia o barrio <span className="optional-label">opcional</span><input value={origin} onChange={(event) => setOrigin(event.target.value)} placeholder="Ej. Invitado de Barrio Centro" /></label><label>Compañía sugerida<select value={companyId} onChange={(event) => setCompanyId(event.target.value)}>{companies.slice().sort((a, b) => a.currentSize - b.currentSize).map((company) => <option key={company.id} value={company.id}>{company.name} · {company.currentSize}/{company.targetSize}</option>)}</select></label><p className="guest-form-note"><UserRound size={16} /> No exige datos de miembro. Al continuar se solicitará autorización, compañía y materiales.</p>{error && <p className="error-text">{error}</p>}</div><footer className="guest-form-footer"><button type="button" className="button outline" onClick={onClose}>Cancelar</button><button type="submit" className="button primary" disabled={!canSubmit || saving}>{saving ? 'Guardando…' : 'Agregar y continuar'} {!saving && <ArrowRight size={16} />}</button></footer></form></section></div>
 }
 
 function LiveCompanies({ companies }: { companies: Company[] }) { return <aside className="live-panel"><div className="section-label"><span><i className="live-dot" /> EN VIVO</span><small>actualizado hace 2 s</small></div><div className="live-title"><div><p className="eyebrow">BALANCE ACTUAL</p><h2>Compañías <em>en vivo.</em></h2></div><Link to="/companies" className="round-arrow" aria-label="Ver compañías"><ArrowRight size={17} /></Link></div><div className="live-list">{companies.map((company) => <Link to="/companies" className="live-company" key={company.id}><span className={`company-icon ${company.theme.colorToken}`}><CompanyIcon icon={company.theme.icon} /></span><span><strong>C{company.number}</strong><small>{company.currentSize} / {company.targetSize}</small></span><span className={company.currentSize < company.targetSize ? 'live-ok' : 'live-full'}>{company.currentSize < company.targetSize ? <Check size={14} /> : <Star size={13} />}</span></Link>)}</div><Link to="/companies" className="panel-link">Ver balance completo <ArrowRight size={15} /></Link></aside> }
 function CompanyIcon({ icon }: { icon: CompanyIcon }) { const icons = { wave: Zap, fire: Flame, cloud: Cloud, manna: Sparkles, mountain: Mountain, path: ArrowRight, staff: Zap, star: Star }; const Icon = icons[icon]; return <Icon size={17} /> }
 
-function ParticipantDetails({ participant: original, companies, onClose, onCompanyChanged, onSuccess }: { participant: Participant; companies: Company[]; onClose: () => void; onCompanyChanged?: () => void; onSuccess: (participant: Participant, company: Company) => void }) {
+function ParticipantDetails({ participant: original, companies, onClose, onCompanyChanged, onReverted, onSuccess }: { participant: Participant; companies: Company[]; onClose: () => void; onCompanyChanged?: () => void; onReverted?: () => void; onSuccess: (participant: Participant, company: Company) => void }) {
   const [participant, setParticipant] = useState(original)
   const [showCompanies, setShowCompanies] = useState(false)
   const [saved, setSaved] = useState(false)
   const [checkinError, setCheckinError] = useState('')
   const [checkingIn, setCheckingIn] = useState(false)
+  const [reverting, setReverting] = useState(false)
   const [savingMedicalInfo, setSavingMedicalInfo] = useState(false)
   const recommendation = recommendCompany(participant)
   const [selectedCompany, setSelectedCompany] = useState(companies.find((company) => company.id === participant.companyId) ?? recommendation.company)
   const blocked = participant.authorizationStatus !== 'confirmed'
   const toggleMaterial = (key: keyof Participant['materials']) => setParticipant({ ...participant, materials: { ...participant.materials, [key]: !participant.materials[key] } })
-  const setAuthorization = (hasPaper: boolean) => { const updated = { ...participant, authorizationStatus: hasPaper ? 'confirmed' as const : 'missing' as const, isException: !hasPaper }; participantRepository.update(updated); setParticipant(updated); onCompanyChanged?.() }
+  const setAuthorization = async (hasPaper: boolean) => { const authorizationStatus = hasPaper ? 'confirmed' as const : 'missing' as const; const updated = { ...participant, authorizationStatus, isException: !hasPaper }; participantRepository.update(updated); setParticipant(updated); onCompanyChanged?.(); try { await updateParticipantAuthorization(participant.id, authorizationStatus) } catch (error) { setCheckinError(error instanceof Error ? error.message : 'No se pudo guardar la autorización.') } }
   const chooseCompany = (company: Company) => { setSelectedCompany(company); setShowCompanies(false); setSaved(false) }
   const saveMedicalInfo = async () => {
     setSavingMedicalInfo(true)
@@ -224,6 +240,20 @@ function ParticipantDetails({ participant: original, companies, onClose, onCompa
     }
   }
   const saveChanges = () => { const assigned = companyRepository.assign(participant.id, selectedCompany.id) ?? participant; const updated = { ...assigned, materials: participant.materials }; participantRepository.update(updated); setParticipant(updated); setSaved(true); onCompanyChanged?.() }
+  const undo = async () => {
+    if (reverting || !window.confirm(`¿Deshacer el check-in de ${formatName(participant)}? La persona no se elimina; solo se quitarán su llegada, materiales y compañía actual.`)) return
+    setReverting(true)
+    setCheckinError('')
+    try {
+      await revertCheckin(participant.id)
+      await hydrateRepositories(import.meta.env.VITE_EVENT_ID)
+      onReverted?.()
+    } catch (error) {
+      setCheckinError(error instanceof Error ? error.message : 'No se pudo revertir el check-in.')
+    } finally {
+      setReverting(false)
+    }
+  }
   const confirm = async () => {
     if (blocked || participant.checkedIn || checkingIn) return
     setCheckingIn(true)
@@ -245,10 +275,10 @@ function ParticipantDetails({ participant: original, companies, onClose, onCompa
      <section className="detail-block medical-info-block"><div className="block-heading"><span><ShieldAlert size={18} /> INFORMACIÓN MÉDICA</span><small>solo ADMIN</small></div><textarea value={participant.medicalInfo ?? ''} onChange={(event) => setParticipant({ ...participant, medicalInfo: event.target.value })} placeholder="Alergias, medicación o indicaciones relevantes…" rows={3} /><div className="medical-info-footer"><small>No se muestra en el proyector.</small><button className="button outline" onClick={() => void saveMedicalInfo()} disabled={savingMedicalInfo}>{savingMedicalInfo ? 'Guardando…' : 'Guardar información'}</button></div></section>
      <section className="detail-block"><div className="block-heading"><span><PackageCheck size={18} /> MATERIALES</span><small>{Object.values(participant.materials).filter(Boolean).length}/3 listos</small></div><div className="shirt-size-row"><span>Talle de remera</span><strong>{participant.shirtSize || 'Sin informar'}</strong></div><MaterialChecklist materials={participant.materials} onToggle={toggleMaterial} /></section>
      <section className="detail-block company-choice"><div className="block-heading"><span><Sparkles size={18} /> COMPAÑÍA ASIGNADA</span><small>{participant.checkedIn ? 'podés cambiarla' : 'sugerida por balance'}</small></div><button className="recommendation-card" onClick={() => setShowCompanies(!showCompanies)}><span className={`big-company-number ${selectedCompany.theme.colorToken}`}>{String(selectedCompany.number).padStart(2, '0')}</span><div><strong>{selectedCompany.name}</strong><span>{selectedCompany.currentSize} / {selectedCompany.targetSize} participantes · {selectedCompany.leaderParticipantId ? 'Tiene líder' : 'Sin líder'}</span><small>{participant.checkedIn ? selectedCompany.id === participant.companyId ? 'Compañía guardada' : 'Pendiente de guardar' : `${recommendation.reasons[0]} · ${recommendation.reasons[1]}`}</small></div><ChevronRight size={19} /></button>{showCompanies && <div className="company-options">{companies.slice().sort((a, b) => a.currentSize - b.currentSize).map((company) => <button key={company.id} className={company.id === selectedCompany.id ? 'selected' : ''} onClick={() => chooseCompany(company)}><span><strong>{company.name}</strong><small>{company.currentSize}/{company.targetSize} · {company.leaderParticipantId ? 'Líder asignado' : 'Sin líder'}</small></span>{company.id === recommendation.company.id && <b>RECOMENDADA</b>}</button>)}</div>}</section>
-      </div><footer className="detail-footer">{participant.checkedIn ? <><div className="already-arrived"><CheckCircle2 size={19} /><span>Check-in realizado a las <strong>{participant.checkedInAt}</strong><small>Compañía {selectedCompany.number}</small></span></div>{selectedCompany.id !== participant.companyId && <button className="button outline save-button" onClick={saveChanges}><Check size={16} /> Guardar</button>}</> : <><div className="detail-save-status">{checkinError ? <span className="error-text">{checkinError}</span> : saved && <><Check size={14} /> Cambios guardados</>}</div><button className="button outline" onClick={onClose}>Cancelar</button><button className="button outline save-button" onClick={saveChanges}><Check size={16} /> Guardar cambios</button><button className="button primary" disabled={blocked || checkingIn} onClick={() => void confirm()}>{checkingIn ? 'Registrando…' : blocked ? 'Autorización pendiente' : 'Confirmar check-in'} <ArrowRight size={17} /></button></>}</footer></section></div>
+       </div><footer className="detail-footer">{participant.checkedIn ? <><div className="already-arrived"><CheckCircle2 size={19} /><span>Check-in realizado a las <strong>{participant.checkedInAt}</strong><small>Compañía {selectedCompany.number}</small></span></div>{selectedCompany.id !== participant.companyId && <button className="button outline save-button" onClick={saveChanges}><Check size={16} /> Guardar</button>}<button className="button outline undo-detail-button" onClick={() => void undo()} disabled={reverting}>{reverting ? 'Deshaciendo…' : 'Deshacer check-in'}</button></> : <><div className="detail-save-status">{checkinError ? <span className="error-text">{checkinError}</span> : saved && <><Check size={14} /> Cambios guardados</>}</div><button className="button outline" onClick={onClose}>Cancelar</button><button className="button outline save-button" onClick={saveChanges}><Check size={16} /> Guardar cambios</button><button className="button primary" disabled={blocked || checkingIn} onClick={() => void confirm()}>{checkingIn ? 'Registrando…' : blocked ? 'Autorización pendiente' : 'Confirmar check-in'} <ArrowRight size={17} /></button></>}</footer></section></div>
 }
 function MaterialChecklist({ materials, onToggle }: { materials: Participant['materials']; onToggle: (key: keyof Participant['materials']) => void }) { const rows = [['shirt', 'Remera / polera'], ['cardPack', 'Sobre de cartas'], ['credential', 'Credencial + porta credencial']] as const; return <div className="material-list">{rows.map(([key, label]) => <button key={key} className="material-row" onClick={() => onToggle(key)}><span className={`check-box ${materials[key] ? 'checked' : ''}`}>{materials[key] && <Check size={14} />}</span><span>{label}</span>{key === 'cardPack' && <small>1 Avatar · 4 Desafíos · 4 Atributos</small>}</button>)}</div> }
-function SuccessOverlay({ result, onNext }: { result: { participant: Participant; company: Company; time: string }; onNext: () => void }) { return <div className="success-screen"><div className="success-ripple"><Check size={34} /></div><p className="eyebrow light">CHECK-IN COMPLETADO</p><h2>{formatName(result.participant)}</h2><div className="success-company"><span>COMPAÑÍA</span><strong>{result.company.number}</strong></div><p>{result.participant.stake}<br />{result.participant.ward}</p><time>{result.time}</time><button className="button light-button" onClick={onNext}>Siguiente participante <ArrowRight size={18} /></button></div> }
+function SuccessOverlay({ result, onNext, onUndo, undoing, error }: { result: { participant: Participant; company: Company; time: string }; onNext: () => void; onUndo: () => void; undoing: boolean; error: string }) { return <div className="success-screen"><div className="success-ripple"><Check size={34} /></div><p className="eyebrow light">CHECK-IN COMPLETADO</p><h2>{formatName(result.participant)}</h2><div className="success-company"><span>COMPAÑÍA</span><strong>{result.company.number}</strong></div><p>{result.participant.stake}<br />{result.participant.ward}</p><time>{result.time}</time>{error && <p className="success-error">{error}</p>}<button className="button light-button" onClick={onNext}>Siguiente participante <ArrowRight size={18} /></button><button className="success-undo-button" onClick={onUndo} disabled={undoing}>{undoing ? 'Deshaciendo…' : 'Deshacer check-in'}</button></div> }
 
 function SchedulePage() { return <div className="schedule-page"><PageTitle eyebrow="MEETUP 2026 · CRONOGRAMA" title={<>El recorrido <em>del día.</em></>} description="Todos los horarios ordenados para acompañar cada momento del encuentro." action={<span className="live-pill"><Clock3 size={14} /> 08:30 — 18:30</span>} /><section className="schedule-hero"><div><p className="eyebrow light">UN DÍA PARA CAMINAR JUNTOS</p><h2>De la bienvenida<br /><em>a la salida.</em></h2><p>El cronograma oficial del MeetUP 2026, con rondas de rotación para que las 9 compañías completen las tres actividades.</p></div><div className="schedule-hero-time"><strong>10 h</strong><span>de encuentro</span></div></section><div className="schedule-list">{scheduleItems.map((item, index) => <ScheduleEntry key={item.id} item={item} index={index} />)}</div></div> }
 
@@ -348,7 +378,7 @@ function AdminPage({ participants, companies }: { participants: Participant[]; c
 function AdminStat({ label, value, icon: Icon }: { label: string; value: number; icon: typeof Users }) { return <div><Icon size={18} /><span>{label}</span><strong>{value}</strong></div> }
 function PageTitle({ eyebrow, title, description, action }: { eyebrow: string; title: React.ReactNode; description: string; action?: React.ReactNode }) { return <header className="page-title"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>{action && <div>{action}</div>}</header> }
 
-type GamesSection = 'dashboard' | 'rewards' | 'overall' | 'tournament' | 'activity'
+type GamesSection = 'rewards' | 'tournament' | 'activity'
 
 function loadGameStates(activityId: string) {
   const fallback = gameCompanyStates.filter((state) => state.activityId === activityId)
@@ -362,7 +392,7 @@ function loadGameStates(activityId: string) {
   }
 }
 
-function GamesPage({ role, companies, section = 'dashboard', projector = false, manage = false }: { role: UserRole; companies: Company[]; section?: GamesSection; projector?: boolean; manage?: boolean }) {
+function GamesPage({ role, companies, section = 'activity', projector = false, manage = false }: { role: UserRole; companies: Company[]; section?: GamesSection; projector?: boolean; manage?: boolean }) {
   const location = useLocation()
   const navigate = useNavigate()
   const canManage = role === 'ADMIN'
@@ -423,9 +453,9 @@ function GamesPage({ role, companies, section = 'dashboard', projector = false, 
   if (projector) return <ProjectorGameView activity={activeActivity} states={remoteBoard?.statesByActivity[activeId] ?? []} statesByActivity={remoteBoard?.statesByActivity ?? {}} tournament={remoteBoard?.tournament ?? null} pointsByCompany={remoteBoard?.pointsByCompany ?? {}} companies={companies} companyName={companyName} />
   return <div className="games-page">
      <GameHeader active={activeActivity} canManage={canManage} onProjector={() => navigate('/games/live')} />
-     <nav className="games-tabs" aria-label="Secciones de Juegos"><button className={section === 'activity' ? 'active' : ''} onClick={() => navigate(`/games/activity/${activeId}`)}>Actividades</button><NavLink to="/games/overall">General</NavLink><NavLink to="/games/overview">En vivo</NavLink></nav>
+      <nav className="games-tabs" aria-label="Secciones de Juegos"><button className={section === 'activity' ? 'active' : ''} onClick={() => navigate(`/games/activity/${activeId}`)}>Actividades</button></nav>
      <div className="activity-picker"><div><p className="eyebrow">ACTIVIDADES DEL MANUAL</p><strong>Elegí qué querés seguir</strong></div><div className="activity-chips">{gameActivities.map((activity) => <button key={activity.id} className={activeId === activity.id ? 'active' : ''} onClick={() => changeActivity(activity.id)}><span>{String(activity.order).padStart(2, '0')}</span>{activity.name}</button>)}</div></div>
-      {section === 'rewards' ? <RewardsCenter rewards={rewardState} companies={companies} onUpdate={updateReward} canManage={canManage} /> : section === 'overall' ? <OverallScores companies={companies} canManage={canManage} /> : section === 'tournament' ? <TournamentGroupsManager companies={companies} canManage={canManage} /> : section === 'activity' ? <GeneralActivityLiveWithReset activity={activeActivity} states={states} companies={companies} companyName={companyName} canManage={canManage} selectedCompanyId={selectedCompanyId} setSelectedCompanyId={setSelectedCompanyId} generalSeconds={generalSeconds} generalRunning={generalRunning} companyTimers={companyTimers} runningCompanies={runningCompanies} onToggleTimer={toggleGeneralTimer} onToggleCompanyTimer={toggleCompanyTimer} onEditTime={editGameTime} onReset={resetRedSeaChecklists} onValidate={validateChallenge} onWhoAmICompleted={completeWhoAmI} onPlaguesCompleted={completePlagues} onRedSeaCompleted={completeRedSea} onDesertCompleted={completeDesert} manage={manage} /> : <GamesDashboard active={activeActivity} states={states} rewards={rewardState} companies={companies} companyName={companyName} onOpenLive={() => navigate('/games/live')} onOpenActivity={() => navigate(`/games/activity/${activeActivity.id}`)} />}
+       {section === 'rewards' ? <RewardsCenter rewards={rewardState} companies={companies} onUpdate={updateReward} canManage={canManage} /> : section === 'tournament' ? <TournamentGroupsManager companies={companies} canManage={canManage} /> : <GeneralActivityLiveWithReset activity={activeActivity} states={states} companies={companies} companyName={companyName} canManage={canManage} selectedCompanyId={selectedCompanyId} setSelectedCompanyId={setSelectedCompanyId} generalSeconds={generalSeconds} generalRunning={generalRunning} companyTimers={companyTimers} runningCompanies={runningCompanies} onToggleTimer={toggleGeneralTimer} onToggleCompanyTimer={toggleCompanyTimer} onEditTime={editGameTime} onReset={resetRedSeaChecklists} onValidate={validateChallenge} onWhoAmICompleted={completeWhoAmI} onPlaguesCompleted={completePlagues} onRedSeaCompleted={completeRedSea} onDesertCompleted={completeDesert} manage={manage} />}
   </div>
 }
 

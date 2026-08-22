@@ -329,7 +329,6 @@ Rutas:
 /games
 /games/live
 /games/rewards
-/games/overall
 /games/activity/:activityId
 /games/activity/:activityId/manage
 /games/tournament
