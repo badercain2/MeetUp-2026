@@ -1,51 +1,20 @@
-import { companies as seedCompanies, exceptions as seedExceptions, participants as seedParticipants } from './mockData'
+import { exceptions as seedExceptions } from './mockData'
 import { supabase } from './supabase/client'
 import type { Company, CompanyActivityState, ExceptionItem, Participant } from '../types'
 
-const PARTICIPANTS_KEY = 'meetup-2026-participants-v2'
-const COMPANIES_KEY = 'meetup-2026-companies-v2'
-
-function loadState<T>(key: string, fallback: T): T {
-  if (typeof window === 'undefined') return fallback
-  try {
-    const stored = window.localStorage.getItem(key)
-    return stored ? JSON.parse(stored) as T : fallback
-  } catch {
-    return fallback
-  }
-}
-
-function saveState(key: string, value: unknown) {
-  if (typeof window !== 'undefined') window.localStorage.setItem(key, JSON.stringify(value))
-}
-
-const initialParticipants = seedParticipants.map((participant) => ({ ...participant, isChurchMember: participant.isChurchMember ?? true, materials: { ...participant.materials } }))
-const initialCompanies = seedCompanies.map((company) => ({ ...company, theme: { ...company.theme } }))
-const validCompanyIds = new Set(initialCompanies.map((company) => company.id))
-const storedParticipants = loadState<Participant[]>(PARTICIPANTS_KEY, initialParticipants)
-const mergedParticipants = [...storedParticipants, ...initialParticipants.filter((participant) => !storedParticipants.some((stored) => stored.id === participant.id))]
-const storedCompanies = loadState<Company[]>(COMPANIES_KEY, initialCompanies)
-let participantsState: Participant[] = mergedParticipants.map((participant) => ({ ...participant, companyId: participant.companyId && validCompanyIds.has(participant.companyId) ? participant.companyId : undefined }))
-let companiesState: Company[] = initialCompanies.map((company) => storedCompanies.find((stored) => stored.id === company.id) ?? company)
+let participantsState: Participant[] = []
+let companiesState: Company[] = []
 
 export const participantRepository = {
   list: () => participantsState,
   replace: (items: Participant[]) => { participantsState = items },
   findById: (id: string) => participantsState.find((participant) => participant.id === id),
-  update: (participant: Participant) => { participantsState = participantsState.map((item) => item.id === participant.id ? participant : item); saveState(PARTICIPANTS_KEY, participantsState) },
-  add: (participant: Omit<Participant, 'id'>) => {
-    const created = { ...participant, id: `guest-${Date.now()}` }
-    participantsState = [...participantsState, created]
-    if (created.companyId) companyRepository.increment(created.companyId)
-    saveState(PARTICIPANTS_KEY, participantsState)
-    return created
-  }
+  update: (participant: Participant) => { participantsState = participantsState.map((item) => item.id === participant.id ? participant : item) }
 }
 export const companyRepository = {
   list: () => companiesState,
   replace: (items: Company[]) => { companiesState = items },
   findById: (id: string) => companiesState.find((company) => company.id === id),
-  increment: (id: string) => { companiesState = companiesState.map((company) => company.id === id ? { ...company, currentSize: company.currentSize + 1 } : company); saveState(COMPANIES_KEY, companiesState) },
   assign: (participantId: string, companyId: string) => {
     const participant = participantsState.find((item) => item.id === participantId)
     if (!participant || participant.companyId === companyId || !companiesState.some((company) => company.id === companyId)) return participant
@@ -53,8 +22,6 @@ export const companyRepository = {
     companiesState = companiesState.map((company) => company.id === companyId ? { ...company, currentSize: company.currentSize + 1 } : company)
     const updated = { ...participant, companyId }
     participantsState = participantsState.map((item) => item.id === participantId ? updated : item)
-    saveState(PARTICIPANTS_KEY, participantsState)
-    saveState(COMPANIES_KEY, companiesState)
     return updated
   }
 }
@@ -63,6 +30,7 @@ export const exceptionRepository = { list: (): ExceptionItem[] => seedExceptions
 export interface RemoteTournamentBoard {
   groupWinners: Record<string, string>
   finalPlaces: Record<string, string>
+  groupAssignments: Record<string, string[]>
 }
 
 export interface RemoteGameBoard {
@@ -86,7 +54,7 @@ export async function loadRemoteGameBoard(eventId: string): Promise<RemoteGameBo
   const [{ data: remoteStates, error: statesError }, { data: results, error: resultsError }, { data: tournaments, error: tournamentsError }] = await Promise.all([
     activityIds.length ? supabase.from('company_activity_states').select('*').in('activity_id', activityIds) : Promise.resolve({ data: [], error: null }),
     activityIds.length ? supabase.from('activity_results').select('activity_id, company_id, points, is_official, status').in('activity_id', activityIds) : Promise.resolve({ data: [], error: null }),
-    supabase.from('tournaments').select('id, manual_group_winners, manual_final_places').eq('event_id', eventId).order('created_at', { ascending: false }).limit(1)
+    supabase.from('tournaments').select('id, manual_group_winners, manual_final_places, group_assignments').eq('event_id', eventId).order('created_at', { ascending: false }).limit(1)
   ])
   if (statesError || resultsError || tournamentsError) throw statesError ?? resultsError ?? tournamentsError
 
@@ -138,7 +106,8 @@ export async function loadRemoteGameBoard(eventId: string): Promise<RemoteGameBo
     pointsByCompany,
     tournament: tournament ? {
       groupWinners: (tournament.manual_group_winners ?? {}) as Record<string, string>,
-      finalPlaces: (tournament.manual_final_places ?? {}) as Record<string, string>
+      finalPlaces: (tournament.manual_final_places ?? {}) as Record<string, string>,
+      groupAssignments: (tournament.group_assignments ?? {}) as Record<string, string[]>
     } : null
   }
 }
@@ -170,7 +139,7 @@ export async function saveRemoteTournament(eventId: string, board: RemoteTournam
   if (activityError) throw activityError
   const { data: current, error: currentError } = await supabase.from('tournaments').select('id').eq('event_id', eventId).order('created_at', { ascending: false }).limit(1)
   if (currentError) throw currentError
-  const payload = { event_id: eventId, activity_id: activity.id, name: 'Torneo de Maestros', fixture_version: 'GROUPS_THREE_TO_FINAL', manual_group_winners: board.groupWinners, manual_final_places: board.finalPlaces }
+  const payload = { event_id: eventId, activity_id: activity.id, name: 'Torneo de Maestros', fixture_version: 'GROUPS_THREE_TO_FINAL', manual_group_winners: board.groupWinners, manual_final_places: board.finalPlaces, group_assignments: board.groupAssignments }
   if (current?.[0]?.id) {
     const { error } = await supabase.from('tournaments').update(payload).eq('id', current[0].id)
     if (error) throw error
@@ -221,7 +190,7 @@ export async function registerCheckin(participantId: string, companyId: string |
     p_card_pack_delivered: materials.cardPack,
     p_credential_delivered: materials.credential
   })
-  if (error) throw error
+  if (error) throw new Error([error.message, error.details, error.hint].filter(Boolean).join(' · '))
   return data as { company_id: string; checked_in_at: string }
 }
 
@@ -243,6 +212,12 @@ export async function updateParticipantAuthorization(participantId: string, auth
     .update({ authorization_status: authorizationStatus, is_exception: authorizationStatus !== 'confirmed' })
     .eq('id', participantId)
   if (error) throw error
+}
+
+export async function assignParticipantCompany(participantId: string, companyId: string) {
+  const { data, error } = await supabase.rpc('assign_participant_company', { p_participant_id: participantId, p_company_id: companyId })
+  if (error) throw new Error([error.message, error.details, error.hint].filter(Boolean).join(' · '))
+  return data as { participant_id: string; company_id: string }
 }
 
 export async function createVisitor(eventId: string, input: { firstName: string; lastName: string; origin: string }) {
