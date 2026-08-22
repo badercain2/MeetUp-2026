@@ -22,6 +22,8 @@ export interface Participant {
   materials: { shirt: boolean; cardPack: boolean; credential: boolean }
   isException: boolean
   notes?: string
+  medicalInfo?: string
+  shirtSize?: string
 }
 
 export interface CompanyTheme { colorToken: string; icon: CompanyIcon }

@@ -205,7 +205,7 @@ export async function hydrateRepositories(eventId: string) {
   const mappedParticipants: Participant[] = remoteParticipants.map((participant) => {
     const checkin = checkinByParticipant.get(participant.id)
     const delivery = materialsByParticipant.get(participant.id)
-    return { id: participant.id, firstName: participant.first_name, lastName: participant.last_name, isChurchMember: true, stake: participant.stake, ward: participant.ward, authorizationStatus: participant.authorization_status, isYouthLeader: participant.is_youth_leader, checkedIn: Boolean(checkin), checkedInAt: checkin?.checked_in_at ? new Date(checkin.checked_in_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : undefined, checkedInBy: checkin?.checked_in_by ?? undefined, companyId: membershipByParticipant.get(participant.id), materials: { shirt: Boolean(delivery?.shirt_delivered), cardPack: Boolean(delivery?.card_pack_delivered), credential: Boolean(delivery?.credential_delivered) }, isException: participant.is_exception, notes: participant.notes }
+    return { id: participant.id, firstName: participant.first_name, lastName: participant.last_name, isChurchMember: true, stake: participant.stake, ward: participant.ward, authorizationStatus: participant.authorization_status, isYouthLeader: participant.is_youth_leader, checkedIn: Boolean(checkin), checkedInAt: checkin?.checked_in_at ? new Date(checkin.checked_in_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : undefined, checkedInBy: checkin?.checked_in_by ?? undefined, companyId: membershipByParticipant.get(participant.id), materials: { shirt: Boolean(delivery?.shirt_delivered), cardPack: Boolean(delivery?.card_pack_delivered), credential: Boolean(delivery?.credential_delivered) }, isException: participant.is_exception, notes: participant.notes, medicalInfo: participant.medical_info ?? undefined, shirtSize: participant.shirt_size ?? undefined }
   })
   const mappedCompanies: Company[] = remoteCompanies.map((company) => ({ id: company.id, number: company.number, name: company.name, targetSize: company.target_size, currentSize: (memberships ?? []).filter((membership) => membership.company_id === company.id).length, leaderParticipantId: company.leader_participant_id ?? undefined, theme: { colorToken: company.theme_color_token as Company['theme']['colorToken'], icon: company.theme_icon as Company['theme']['icon'] } }))
   participantRepository.replace(mappedParticipants)
@@ -243,7 +243,9 @@ export async function importParticipants(eventId: string, participants: Particip
       is_youth_leader: participant.isYouthLeader,
       authorization_status: participant.authorizationStatus,
       is_exception: participant.isException,
-      notes: participant.notes ?? null
+      notes: participant.notes ?? null,
+      medical_info: participant.medicalInfo ?? null,
+      shirt_size: participant.shirtSize ?? null
     }))
   if (rows.length) {
     const { error } = await supabase.from('participants').insert(rows)
@@ -251,6 +253,11 @@ export async function importParticipants(eventId: string, participants: Particip
   }
   await hydrateRepositories(eventId)
   return rows.length
+}
+
+export async function updateParticipantMedicalInfo(participantId: string, medicalInfo: string) {
+  const { error } = await supabase.from('participants').update({ medical_info: medicalInfo || null }).eq('id', participantId)
+  if (error) throw error
 }
 
 export function recommendCompany(participant: Participant) {
