@@ -1,6 +1,7 @@
 export type UserRole = 'ADMIN'
 export type SyncState = 'online' | 'reconnecting' | 'offline'
 export type AuthorizationStatus = 'confirmed' | 'pending' | 'missing'
+export type ParticipantSex = 'HOMBRE' | 'MUJER'
 export type CompanyIcon = 'wave' | 'fire' | 'cloud' | 'manna' | 'mountain' | 'path' | 'staff' | 'star'
 export type ScoreType = 'NONE' | 'TIME_ASC' | 'POINTS_DESC' | 'BRACKET'
 export type ActivityStatus = 'NOT_STARTED' | 'READY' | 'IN_PROGRESS' | 'PAUSED' | 'FINISHED' | 'REALIZED' | 'UNDER_REVIEW' | 'DISQUALIFIED'
@@ -11,6 +12,8 @@ export interface Participant {
   firstName: string
   lastName: string
   isChurchMember: boolean
+  sex?: ParticipantSex
+  age?: number
   stake: string
   ward: string
   authorizationStatus: AuthorizationStatus

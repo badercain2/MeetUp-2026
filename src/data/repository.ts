@@ -174,7 +174,7 @@ export async function hydrateRepositories(eventId: string) {
   const mappedParticipants: Participant[] = remoteParticipants.map((participant) => {
     const checkin = checkinByParticipant.get(participant.id)
     const delivery = materialsByParticipant.get(participant.id)
-    return { id: participant.id, firstName: participant.first_name, lastName: participant.last_name, isChurchMember: participant.is_church_member, stake: participant.stake, ward: participant.ward, authorizationStatus: participant.authorization_status, isYouthLeader: participant.is_youth_leader, checkedIn: Boolean(participant.checking), checkedInAt: checkin?.checked_in_at ? new Date(checkin.checked_in_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : undefined, checkedInBy: checkin?.checked_in_by ?? undefined, companyId: membershipByParticipant.get(participant.id), materials: { shirt: Boolean(delivery?.shirt_delivered), cardPack: Boolean(delivery?.card_pack_delivered), credential: Boolean(delivery?.credential_delivered) }, isException: participant.is_exception, notes: participant.notes, medicalInfo: participant.medical_info ?? undefined, shirtSize: participant.shirt_size ?? undefined }
+    return { id: participant.id, firstName: participant.first_name, lastName: participant.last_name, isChurchMember: participant.is_church_member, sex: participant.sex as Participant['sex'] ?? undefined, age: participant.age ?? undefined, stake: participant.stake, ward: participant.ward, authorizationStatus: participant.authorization_status, isYouthLeader: participant.is_youth_leader, checkedIn: Boolean(participant.checking), checkedInAt: checkin?.checked_in_at ? new Date(checkin.checked_in_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : undefined, checkedInBy: checkin?.checked_in_by ?? undefined, companyId: membershipByParticipant.get(participant.id), materials: { shirt: Boolean(delivery?.shirt_delivered), cardPack: Boolean(delivery?.card_pack_delivered), credential: Boolean(delivery?.credential_delivered) }, isException: participant.is_exception, notes: participant.notes, medicalInfo: participant.medical_info ?? undefined, shirtSize: participant.shirt_size ?? undefined }
   })
   const mappedCompanies: Company[] = remoteCompanies.map((company) => ({ id: company.id, number: company.number, name: company.name, targetSize: company.target_size, currentSize: (memberships ?? []).filter((membership) => membership.company_id === company.id).length, leaderParticipantId: company.leader_participant_id ?? undefined, theme: { colorToken: company.theme_color_token as Company['theme']['colorToken'], icon: company.theme_icon as Company['theme']['icon'] } }))
   participantRepository.replace(mappedParticipants)
@@ -248,6 +248,8 @@ export async function importParticipants(eventId: string, participants: Particip
       last_name: participant.lastName,
       stake: participant.stake,
       ward: participant.ward,
+      sex: participant.sex ?? null,
+      age: participant.age ?? null,
       is_youth_leader: participant.isYouthLeader,
       is_church_member: participant.isChurchMember,
       authorization_status: participant.authorizationStatus,
