@@ -64,8 +64,8 @@ Solo Sigue la Música suma automáticamente porque el manual define valores. Evi
 
 ## Roles
 
-- `ADMIN`: único usuario operativo del MVP; gestiona actividades, correcciones, impugnaciones, puntajes globales, premios y reinicios.
+- `SUPERVISOR` y `ADMIN`: gestionan actividades, correcciones, impugnaciones, puntajes globales, premios y reinicios. `CHECKIN` consulta el estado operativo sin acceso de gestión.
 
 ## Datos y Realtime
 
-Los componentes consumen datos de `src/data/gamesData.ts` para mock y la interfaz `GamesRepository` de `src/data/gamesRepository.ts`. Para Supabase se puede reemplazar `mockGamesRepository` por `SupabaseGamesRepository` sin modificar las pantallas. El backend futuro debe ser la fuente de verdad, usar timestamps/versiones y publicar cambios de ranking después de confirmar cada resultado.
+Las pantallas consumen datos de respaldo en `src/data/gamesData.ts` y estados persistidos en Supabase mediante `src/data/repository.ts`. Supabase es la fuente de verdad para el tablero remoto; las escrituras se validan con Auth y RLS.

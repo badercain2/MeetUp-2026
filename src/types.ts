@@ -1,4 +1,4 @@
-export type UserRole = 'ADMIN'
+export type UserRole = 'CHECKIN' | 'SUPERVISOR' | 'ADMIN'
 export type SyncState = 'online' | 'reconnecting' | 'offline'
 export type AuthorizationStatus = 'confirmed' | 'pending' | 'missing'
 export type ParticipantSex = 'HOMBRE' | 'MUJER'

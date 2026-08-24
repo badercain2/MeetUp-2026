@@ -28,11 +28,14 @@ function App() {
       if (!session) { setLoggedIn(false); setAuthLoading(false); return }
       const { data: profile, error } = await supabase.from('profiles').select('display_name, role').eq('id', session.user.id).single()
       if (!mounted) return
-      if (error) console.error('No se pudo cargar el perfil de Supabase:', error)
-      console.info('[MeetUP Auth] perfil cargado', { userId: session.user.id, displayName: profile?.display_name, role: profile?.role, error: error?.message })
-      setDisplayName(profile?.display_name ?? session.user.email?.split('@')[0] ?? 'Usuario')
-      const normalizedRole = String(profile?.role ?? '').toUpperCase()
-      setRole('ADMIN')
+      const profileError = error?.message
+      if (error || !profile) { if (error) console.error('No se pudo cargar el perfil de Supabase:', error); setDisplayName(''); setLoggedIn(false); setAuthLoading(false); return }
+      console.info('[MeetUP Auth] perfil cargado', { userId: session.user.id, displayName: profile.display_name, role: profile.role, error: profileError })
+      setDisplayName(profile.display_name ?? session.user.email?.split('@')[0] ?? 'Usuario')
+      const normalizedRole = String(profile.role ?? '').toUpperCase()
+      const nextRole: UserRole | null = normalizedRole === 'ADMIN' ? 'ADMIN' : normalizedRole === 'SUPERVISOR' ? 'SUPERVISOR' : normalizedRole === 'CHECKIN' ? 'CHECKIN' : null
+      if (!nextRole) { setDisplayName(''); setLoggedIn(false); setAuthLoading(false); return }
+      setRole(nextRole)
       setLoggedIn(true)
       setAuthLoading(false)
     }
@@ -75,8 +78,8 @@ function App() {
 }
 
 function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => Promise<void> }) {
-  const [email, setEmail] = useState('voluntario@meetup.org')
-  const [password, setPassword] = useState('meetup2026')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   return <main className="login-page">
     <section className="login-visual">
@@ -397,7 +400,7 @@ function loadGameStates(activityId: string) {
 function GamesPage({ role, companies, section = 'activity', projector = false, manage = false }: { role: UserRole; companies: Company[]; section?: GamesSection; projector?: boolean; manage?: boolean }) {
   const location = useLocation()
   const navigate = useNavigate()
-  const canManage = role === 'ADMIN'
+  const canManage = role === 'ADMIN' || role === 'SUPERVISOR'
   const activityId = location.pathname === '/games/tournament' ? 'masters' : location.pathname.split('/')[3]
   const activeFromRoute = gameActivities.find((activity) => activity.id === activityId) ?? gameActivities.find((activity) => activity.id === 'who-am-i') ?? gameActivities[0]
   const [activeId, setActiveId] = useState(activeFromRoute.id)
@@ -472,7 +475,7 @@ function GamesDashboard({ active, states, rewards, companies, companyName, onOpe
 function CompanyTimerCard({ state, activity, companyName, seconds, running, canManage, canEditTime, onEditTime, selected, onSelect, onToggleTimer }: { state: CompanyActivityState; activity: GameActivity; companyName: (id?: string) => string; seconds: number; running: boolean; canManage: boolean; canEditTime?: boolean; onEditTime?: (companyId: string, seconds: number) => void; selected: boolean; onSelect: () => void; onToggleTimer: () => void }) {
   const closed = state.status === 'FINISHED' || state.status === 'REALIZED'
   const displaySeconds = closed && state.elapsedMs !== undefined ? Math.floor(state.elapsedMs / 1000) : seconds
-  const editTime = () => { const password = window.prompt('Contraseña para editar el tiempo'); if (password !== '12345678') { if (password !== null) window.alert('Contraseña incorrecta'); return }; const value = window.prompt('Nuevo tiempo en formato MM:SS', formatGameTime(displaySeconds * 1000)); if (!value || !/^\d{1,3}:\d{2}$/.test(value)) { if (value !== null) window.alert('Usá el formato MM:SS'); return }; const [minutes, secondsValue] = value.split(':').map(Number); const nextSeconds = minutes * 60 + secondsValue; onEditTime?.(state.companyId, nextSeconds) }
+  const editTime = () => { const value = window.prompt('Nuevo tiempo en formato MM:SS', formatGameTime(displaySeconds * 1000)); if (!value || !/^\d{1,3}:\d{2}$/.test(value)) { if (value !== null) window.alert('Usá el formato MM:SS'); return }; const [minutes, secondsValue] = value.split(':').map(Number); const nextSeconds = minutes * 60 + secondsValue; onEditTime?.(state.companyId, nextSeconds) }
   return <article className={`game-company-card timed-company-card activity-${activity.id} ${selected ? 'selected' : ''} ${closed ? 'completed' : ''} ${state.underReview ? 'review' : ''}`} onClick={onSelect}><div className="game-company-top"><span className="company-mini-mark">{state.companyId.replace('c', '')}</span><div><strong>{companyName(state.companyId)}</strong><StateLabel status={state.status} /></div>{closed ? <CheckCircle2 size={19} className="company-crown" /> : <Radio size={18} className="company-radio" />}</div><div className="company-timer-line"><Clock3 size={16} /><strong>{formatGameTime(displaySeconds * 1000)}</strong><span className={running ? 'timer-running' : ''}>{running ? 'Cronómetro activo' : state.status === 'REALIZED' ? 'Juego realizado' : state.status === 'FINISHED' ? 'Tiempo final' : 'Listo para iniciar'}</span></div><div className="game-progress-copy"><span>{state.progressCurrent} / {state.progressTotal} {activity.id === 'plagues' ? 'actividades' : 'desafíos'}</span><strong>{Math.round((state.progressCurrent / state.progressTotal) * 100)}%</strong></div><div className="game-progress"><span style={{ width: `${(state.progressCurrent / state.progressTotal) * 100}%` }} /></div><div className="game-company-footer"><span>{state.status === 'REALIZED' ? 'Juego realizado' : state.status === 'FINISHED' ? 'Resultado final' : state.status === 'IN_PROGRESS' ? 'En juego' : 'No inició'}</span>{['plagues', 'red-sea', 'desert'].includes(activity.id) && closed && <button className="button outline edit-time-button" onClick={(event) => { event.stopPropagation(); editTime() }}>Editar tiempo</button>}{canManage && !closed && <button className="button outline timer-button" onClick={(event) => { event.stopPropagation(); onToggleTimer() }}>{running ? <><Pause size={13} /> Pausar</> : <><Play size={13} /> Iniciar</>}</button>}</div></article>
 }
 

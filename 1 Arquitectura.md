@@ -3,10 +3,10 @@
 ## Estado del documento
 
 - Versión: `1.2`
-- Tipo: arquitectura objetivo y plan técnico
-- Fuente: `1 CONTEXTO CHARLA.md`, manual de actividades y frontend mock existente
-- Backend actual: ninguno, frontend mock
-- Backend objetivo: Supabase PostgreSQL + Auth + Realtime
+- Tipo: arquitectura vigente y plan técnico
+- Fuente: manual de actividades, frontend React y esquema Supabase
+- Backend actual: Supabase PostgreSQL + Auth + Realtime
+- Datos de respaldo: mocks locales para contenido de interfaz y fallback offline
 - Hosting objetivo: GitHub Pages mediante GitHub Actions
 - Costo de infraestructura objetivo: `$0/mes` usando únicamente planes gratuitos y sin dominio personalizado
 
@@ -375,10 +375,10 @@ Carga manual de 1.º, 2.º y 3.º puesto
 
 ## 6. Roles y Permisos
 
-Para este MVP se utiliza un único usuario operativo con rol administrador:
+La aplicación usa perfiles de Supabase con roles separados:
 
 ```ts
-type UserRole = 'ADMIN';
+type UserRole = 'CHECKIN' | 'SUPERVISOR' | 'ADMIN';
 ```
 
 Los permisos deben ser explícitos para no llenar los componentes de condiciones dispersas:
@@ -394,6 +394,17 @@ interface Permissions {
   canManageTournament: boolean;
 }
 ```
+
+### CHECKIN
+
+- consultar participantes y compañías;
+- registrar y revertir Check-in mediante las funciones autorizadas;
+- consultar el estado operativo sin administrar la configuración.
+
+### SUPERVISOR
+
+- todo lo permitido a `CHECKIN`;
+- gestionar compañías, juegos, resultados, excepciones y torneo.
 
 ### ADMIN
 
@@ -455,11 +466,15 @@ id
 event_id
 first_name
 last_name
+sex
+age
 stake
 ward
 is_youth_leader
 authorization_status
 notes
+medical_info
+shirt_size
 is_exception
 ```
 
@@ -850,7 +865,8 @@ En offline se puede consultar el último estado conocido, pero no mostrar una as
 - Supabase Auth para login.
 - RLS en todas las tablas con `event_id`.
 - Usuarios solo ven eventos autorizados.
-- ADMIN es el único rol operativo del MVP y puede configurar o corregir toda la información.
+- `CHECKIN`, `SUPERVISOR` y `ADMIN` solo acceden con una sesión autenticada y un perfil activo.
+- `SUPERVISOR` y `ADMIN` pueden configurar o corregir información; `ADMIN` además accede a administración e importación/exportación.
 - No poner nombres, barrios ni datos personales en URLs.
 - No registrar tokens en consola.
 - No enviar secretos, contraseñas ni tokens al modo proyector.
