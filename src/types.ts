@@ -40,6 +40,7 @@ export interface Company {
   name: string
   targetSize: number
   currentSize: number
+  checkedInSize?: number
   leaderParticipantId?: string
   theme: CompanyTheme
 }

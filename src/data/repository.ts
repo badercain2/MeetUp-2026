@@ -18,8 +18,8 @@ export const companyRepository = {
   assign: (participantId: string, companyId: string) => {
     const participant = participantsState.find((item) => item.id === participantId)
     if (!participant || participant.companyId === companyId || !companiesState.some((company) => company.id === companyId)) return participant
-    if (participant.companyId) companiesState = companiesState.map((company) => company.id === participant.companyId ? { ...company, currentSize: Math.max(0, company.currentSize - 1) } : company)
-    companiesState = companiesState.map((company) => company.id === companyId ? { ...company, currentSize: company.currentSize + 1 } : company)
+    if (participant.companyId) companiesState = companiesState.map((company) => company.id === participant.companyId ? { ...company, currentSize: Math.max(0, company.currentSize - 1), checkedInSize: participant.checkedIn ? Math.max(0, (company.checkedInSize ?? 0) - 1) : company.checkedInSize } : company)
+    companiesState = companiesState.map((company) => company.id === companyId ? { ...company, currentSize: company.currentSize + 1, checkedInSize: participant.checkedIn ? (company.checkedInSize ?? 0) + 1 : company.checkedInSize } : company)
     const updated = { ...participant, companyId }
     participantsState = participantsState.map((item) => item.id === participantId ? updated : item)
     return updated
@@ -170,13 +170,14 @@ export async function hydrateRepositories(eventId: string) {
 
   const membershipByParticipant = new Map((memberships ?? []).map((membership) => [membership.participant_id, membership.company_id]))
   const checkinByParticipant = new Map((checkins ?? []).map((checkin) => [checkin.participant_id, checkin]))
+  const checkedInParticipantIds = new Set((checkins ?? []).map((checkin) => checkin.participant_id))
   const materialsByParticipant = new Map((materials ?? []).map((delivery) => [delivery.participant_id, delivery]))
   const mappedParticipants: Participant[] = remoteParticipants.map((participant) => {
     const checkin = checkinByParticipant.get(participant.id)
     const delivery = materialsByParticipant.get(participant.id)
     return { id: participant.id, firstName: participant.first_name, lastName: participant.last_name, isChurchMember: participant.is_church_member, sex: participant.sex as Participant['sex'] ?? undefined, age: participant.age ?? undefined, birthDate: participant.birth_date ?? undefined, stake: participant.stake, ward: participant.ward, authorizationStatus: participant.authorization_status, isYouthLeader: participant.is_youth_leader, checkedIn: Boolean(participant.checking), checkedInAt: checkin?.checked_in_at ? new Date(checkin.checked_in_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : undefined, checkedInBy: checkin?.checked_in_by ?? undefined, companyId: membershipByParticipant.get(participant.id), materials: { shirt: Boolean(delivery?.shirt_delivered), cardPack: Boolean(delivery?.card_pack_delivered), credential: Boolean(delivery?.credential_delivered) }, isException: participant.is_exception, notes: participant.notes, medicalInfo: participant.medical_info ?? undefined, dietaryInfo: participant.dietary_info ?? undefined, shirtSize: participant.shirt_size ?? undefined }
   })
-  const mappedCompanies: Company[] = remoteCompanies.map((company) => ({ id: company.id, number: company.number, name: company.name, targetSize: company.target_size, currentSize: (memberships ?? []).filter((membership) => membership.company_id === company.id).length, leaderParticipantId: company.leader_participant_id ?? undefined, theme: { colorToken: company.theme_color_token as Company['theme']['colorToken'], icon: company.theme_icon as Company['theme']['icon'] } }))
+  const mappedCompanies: Company[] = remoteCompanies.map((company) => ({ id: company.id, number: company.number, name: company.name, targetSize: company.target_size, currentSize: (memberships ?? []).filter((membership) => membership.company_id === company.id).length, checkedInSize: (memberships ?? []).filter((membership) => membership.company_id === company.id && checkedInParticipantIds.has(membership.participant_id)).length, leaderParticipantId: company.leader_participant_id ?? undefined, theme: { colorToken: company.theme_color_token as Company['theme']['colorToken'], icon: company.theme_icon as Company['theme']['icon'] } }))
   participantRepository.replace(mappedParticipants)
   companyRepository.replace(mappedCompanies)
   return true

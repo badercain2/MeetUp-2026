@@ -73,8 +73,17 @@ join public.participants participant on participant.event_id = '${eventId}'
   and participant.birth_date is not distinct from source.birth_date and participant.age = source.age
   and participant.stake = source.stake and participant.ward = source.ward
 join public.companies company on company.event_id = '${eventId}' and company.number = source.company_number;
+insert into public.participants(event_id, first_name, last_name, birth_date, sex, shirt_size, dietary_info, age, stake, ward, is_church_member, is_youth_leader, authorization_status, is_exception, checking)
+select '${eventId}', 'Usuario', 'de Prueba', '2012-01-01', 'HOMBRE', 'M', 'Sin restricciones', 14, 'Estaca de prueba', 'Barrio de prueba', true, false, 'confirmed', false, false
+where not exists (select 1 from public.participants where event_id = '${eventId}' and first_name = 'Usuario' and last_name = 'de Prueba');
+insert into public.company_memberships(event_id, participant_id, company_id, assignment_source, is_current)
+select participant.event_id, participant.id, company.id, 'PREASSIGNED', true
+from public.participants participant
+join public.companies company on company.event_id = participant.event_id and company.number = 1
+where participant.event_id = '${eventId}' and participant.first_name = 'Usuario' and participant.last_name = 'de Prueba'
+  and not exists (select 1 from public.company_memberships membership where membership.participant_id = participant.id and membership.is_current);
 commit;
 `
 
 execFileSync('supabase', ['db', 'query', '--linked', sql], { stdio: 'inherit' })
-console.log(`Importados ${participants.length} participantes en 12 compañías${replaceExisting ? ' (se reemplazaron los datos anteriores del evento)' : ''}.`)
+console.log(`Importados ${participants.length} participantes reales y 1 usuario de prueba en 12 compañías${replaceExisting ? ' (se reemplazaron los datos anteriores del evento)' : ''}.`)
