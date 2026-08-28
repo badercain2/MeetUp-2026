@@ -14,6 +14,7 @@ export interface Participant {
   isChurchMember: boolean
   sex?: ParticipantSex
   age?: number
+  birthDate?: string
   stake: string
   ward: string
   authorizationStatus: AuthorizationStatus
@@ -26,7 +27,10 @@ export interface Participant {
   isException: boolean
   notes?: string
   medicalInfo?: string
+  dietaryInfo?: string
   shirtSize?: string
+  /** Company number is used while importing the registration spreadsheet. */
+  companyNumber?: number
 }
 
 export interface CompanyTheme { colorToken: string; icon: CompanyIcon }

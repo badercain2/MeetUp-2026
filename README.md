@@ -16,6 +16,16 @@ npm run lint
 npm run build
 ```
 
+## Carga de participantes
+
+La planilla real se importa con el script que conserva compañías, cumpleaños y datos alimentarios:
+
+```bash
+node scripts/import-event-xlsx.mjs --replace
+```
+
+Usá `--replace` solo para la carga inicial; elimina los participantes anteriores del evento antes de importar el XLSX.
+
 ## Acceso
 
 - La aplicación requiere un usuario autenticado de Supabase.

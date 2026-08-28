@@ -174,7 +174,7 @@ export async function hydrateRepositories(eventId: string) {
   const mappedParticipants: Participant[] = remoteParticipants.map((participant) => {
     const checkin = checkinByParticipant.get(participant.id)
     const delivery = materialsByParticipant.get(participant.id)
-    return { id: participant.id, firstName: participant.first_name, lastName: participant.last_name, isChurchMember: participant.is_church_member, sex: participant.sex as Participant['sex'] ?? undefined, age: participant.age ?? undefined, stake: participant.stake, ward: participant.ward, authorizationStatus: participant.authorization_status, isYouthLeader: participant.is_youth_leader, checkedIn: Boolean(participant.checking), checkedInAt: checkin?.checked_in_at ? new Date(checkin.checked_in_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : undefined, checkedInBy: checkin?.checked_in_by ?? undefined, companyId: membershipByParticipant.get(participant.id), materials: { shirt: Boolean(delivery?.shirt_delivered), cardPack: Boolean(delivery?.card_pack_delivered), credential: Boolean(delivery?.credential_delivered) }, isException: participant.is_exception, notes: participant.notes, medicalInfo: participant.medical_info ?? undefined, shirtSize: participant.shirt_size ?? undefined }
+    return { id: participant.id, firstName: participant.first_name, lastName: participant.last_name, isChurchMember: participant.is_church_member, sex: participant.sex as Participant['sex'] ?? undefined, age: participant.age ?? undefined, birthDate: participant.birth_date ?? undefined, stake: participant.stake, ward: participant.ward, authorizationStatus: participant.authorization_status, isYouthLeader: participant.is_youth_leader, checkedIn: Boolean(participant.checking), checkedInAt: checkin?.checked_in_at ? new Date(checkin.checked_in_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : undefined, checkedInBy: checkin?.checked_in_by ?? undefined, companyId: membershipByParticipant.get(participant.id), materials: { shirt: Boolean(delivery?.shirt_delivered), cardPack: Boolean(delivery?.card_pack_delivered), credential: Boolean(delivery?.credential_delivered) }, isException: participant.is_exception, notes: participant.notes, medicalInfo: participant.medical_info ?? undefined, dietaryInfo: participant.dietary_info ?? undefined, shirtSize: participant.shirt_size ?? undefined }
   })
   const mappedCompanies: Company[] = remoteCompanies.map((company) => ({ id: company.id, number: company.number, name: company.name, targetSize: company.target_size, currentSize: (memberships ?? []).filter((membership) => membership.company_id === company.id).length, leaderParticipantId: company.leader_participant_id ?? undefined, theme: { colorToken: company.theme_color_token as Company['theme']['colorToken'], icon: company.theme_icon as Company['theme']['icon'] } }))
   participantRepository.replace(mappedParticipants)
@@ -234,14 +234,19 @@ export async function createVisitor(eventId: string, input: { firstName: string;
 }
 
 export async function importParticipants(eventId: string, participants: Participant[]) {
-  const { data: existing, error: existingError } = await supabase
+  const [{ data: existing, error: existingError }, { data: remoteCompanies, error: companyError }] = await Promise.all([
+    supabase
     .from('participants')
-    .select('first_name, last_name, stake, ward')
-    .eq('event_id', eventId)
+    .select('id, first_name, last_name, birth_date, age, stake, ward')
+    .eq('event_id', eventId),
+    supabase.from('companies').select('id, number').eq('event_id', eventId).eq('active', true)
+  ])
   if (existingError) throw existingError
-  const existingKeys = new Set((existing ?? []).map((participant) => `${participant.first_name}|${participant.last_name}|${participant.stake}|${participant.ward}`.toLocaleLowerCase('es')))
+  if (companyError) throw companyError
+  const participantKey = (participant: Pick<Participant, 'firstName' | 'lastName' | 'birthDate' | 'age' | 'stake' | 'ward'>) => [participant.firstName, participant.lastName, participant.birthDate ?? '', participant.age ?? '', participant.stake, participant.ward].map((value) => String(value).trim().toLocaleLowerCase('es')).join('|')
+  const existingByKey = new Map((existing ?? []).map((participant) => [`${participant.first_name}|${participant.last_name}|${participant.birth_date ?? ''}|${participant.age ?? ''}|${participant.stake}|${participant.ward}`.trim().toLocaleLowerCase('es'), participant]))
   const rows = participants
-    .filter((participant) => !existingKeys.has(`${participant.firstName}|${participant.lastName}|${participant.stake}|${participant.ward}`.toLocaleLowerCase('es')))
+    .filter((participant) => !existingByKey.has(participantKey(participant)))
     .map((participant) => ({
       event_id: eventId,
       first_name: participant.firstName,
@@ -250,17 +255,42 @@ export async function importParticipants(eventId: string, participants: Particip
       ward: participant.ward,
       sex: participant.sex ?? null,
       age: participant.age ?? null,
+      birth_date: participant.birthDate ?? null,
       is_youth_leader: participant.isYouthLeader,
       is_church_member: participant.isChurchMember,
       authorization_status: participant.authorizationStatus,
       is_exception: participant.isException,
       notes: participant.notes ?? null,
       medical_info: participant.medicalInfo ?? null,
+      dietary_info: participant.dietaryInfo ?? null,
       shirt_size: participant.shirtSize ?? null
     }))
-  if (rows.length) {
-    const { error } = await supabase.from('participants').insert(rows)
-    if (error) throw error
+  const { data: inserted, error: insertError } = rows.length
+    ? await supabase.from('participants').insert(rows).select('id, first_name, last_name, birth_date, age, stake, ward')
+    : { data: [], error: null }
+  if (insertError) throw insertError
+  const participantIdByKey = new Map<string, string>()
+  for (const participant of existing ?? []) participantIdByKey.set(`${participant.first_name}|${participant.last_name}|${participant.birth_date ?? ''}|${participant.age ?? ''}|${participant.stake}|${participant.ward}`.trim().toLocaleLowerCase('es'), participant.id)
+  for (const participant of inserted ?? []) participantIdByKey.set(`${participant.first_name}|${participant.last_name}|${participant.birth_date ?? ''}|${participant.age ?? ''}|${participant.stake}|${participant.ward}`.trim().toLocaleLowerCase('es'), participant.id)
+  const updates = participants
+    .map((participant) => ({ participant, id: participantIdByKey.get(participantKey(participant)) }))
+    .filter((item): item is { participant: Participant; id: string } => Boolean(item.id))
+    .map(({ participant, id }) => supabase.from('participants').update({ first_name: participant.firstName, last_name: participant.lastName, stake: participant.stake, ward: participant.ward, sex: participant.sex ?? null, age: participant.age ?? null, birth_date: participant.birthDate ?? null, is_youth_leader: participant.isYouthLeader, is_church_member: participant.isChurchMember, notes: participant.notes ?? null, medical_info: participant.medicalInfo ?? null, dietary_info: participant.dietaryInfo ?? null, shirt_size: participant.shirtSize ?? null }).eq('id', id))
+  const updateResults = await Promise.all(updates)
+  const updateError = updateResults.find((result) => result.error)?.error
+  if (updateError) throw updateError
+  const companyIdByNumber = new Map((remoteCompanies ?? []).map((company) => [company.number, company.id]))
+  const membershipRows = participants.flatMap((participant) => {
+    const participantId = participantIdByKey.get(participantKey(participant))
+    const companyId = participant.companyNumber ? companyIdByNumber.get(participant.companyNumber) : undefined
+    return participantId && companyId ? [{ event_id: eventId, participant_id: participantId, company_id: companyId, assignment_source: 'PREASSIGNED', is_current: true }] : []
+  })
+  if (membershipRows.length) {
+    const participantIds = membershipRows.map((membership) => membership.participant_id)
+    const { error: closeError } = await supabase.from('company_memberships').update({ is_current: false }).eq('event_id', eventId).eq('is_current', true).in('participant_id', participantIds)
+    if (closeError) throw closeError
+    const { error: membershipError } = await supabase.from('company_memberships').insert(membershipRows)
+    if (membershipError) throw membershipError
   }
   await hydrateRepositories(eventId)
   return rows.length

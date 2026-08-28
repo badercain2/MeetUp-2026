@@ -342,7 +342,7 @@ Actividades y regla de ranking:
 |---|---|
 | ¿Quién soy? | Sin podio; registrar aciertos y recompensas |
 | Evita las Plagas | `TIME_ASC`, 7 plagas secuenciales |
-| Torneo de Maestros | 3 grupos de 3 compañías; cada grupo produce 1 ganadora; final entre las 3 ganadoras; puestos 1.º, 2.º y 3.º cargados manualmente |
+| Torneo de Maestros | 3 grupos de 4 compañías; cada grupo produce 1 ganadora; final entre las 3 ganadoras; puestos 1.º, 2.º y 3.º cargados manualmente |
 | Cruza el Mar Rojo | `TIME_ASC`, 10 desafíos y cronómetro continuo |
 | Escape del Desierto | Progreso `CAMINO`; sin ranking |
 | Sigue la Música | `POINTS_DESC`, puntos definidos por el manual |
@@ -352,9 +352,9 @@ Actividades y regla de ranking:
 La aplicación no usa un bracket tradicional de eliminación ni una ronda automática de clasificación.
 
 ```text
-9 compañías
+12 compañías
     ↓
-3 grupos de 3 compañías
+3 grupos de 4 compañías
     ↓
 Cada grupo registra sus enfrentamientos y produce 1 ganadora
     ↓
@@ -1027,7 +1027,7 @@ Las variables `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` y `VITE_EVENT
 ### Fase 3: Torneos
 
 - mini torneos;
-- Torneo de Maestros con 3 grupos de 3 compañías;
+- Torneo de Maestros con 3 grupos de 4 compañías;
 - carga manual de una ganadora por grupo;
 - final entre las 3 ganadoras;
 - carga manual de puestos 1.º, 2.º y 3.º;

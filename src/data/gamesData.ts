@@ -9,14 +9,14 @@ export const gameActivities: GameActivity[] = [
   { id: 'music', order: 6, name: 'Sigue la música', startTime: '15:00', durationMinutes: 40, scoreType: 'POINTS_DESC', status: 'UPCOMING', globalPointsEnabled: true, description: 'Participación, identidad y celebración de compañía.', reward: 'Ronda 1: 10/7/5/3 · Ronda 2: +5 por desafío · Ronda 3: sin puntos', challengeCount: 3, challenges: ['Activación por compañía', 'Identidad: coreografía e himno', 'Celebración'] }
 ]
 
-const redSeaProgress = [0, 0, 0, 0, 0, 0, 0, 0, 0]
-const redSeaTimes = [undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined]
+const redSeaProgress = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+const redSeaTimes = [undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined]
 export const gameCompanyStates: CompanyActivityState[] = gameActivities.flatMap((activity): CompanyActivityState[] => {
   if (activity.id === 'red-sea') return redSeaProgress.map((progress, index) => ({ activityId: activity.id, companyId: `c${index + 1}`, status: progress === 10 ? 'FINISHED' : progress > 0 ? 'IN_PROGRESS' : 'NOT_STARTED', progressCurrent: progress, progressTotal: 10, officialTimeMs: redSeaTimes[index] ? redSeaTimes[index] * 1000 : undefined, elapsedMs: progress ? (redSeaTimes[index] ?? 1300) * 1000 : undefined, underReview: index === 3, lastUpdate: index < 4 ? 'hace 2 min' : 'hace 8 min' }))
-  if (activity.id === 'plagues') return Array.from({ length: 9 }, (_, index) => ({ activityId: activity.id, companyId: `c${index + 1}`, status: 'NOT_STARTED' as const, progressCurrent: 0, progressTotal: 7, lastUpdate: 'pendiente' }))
-  if (activity.id === 'desert') return Array.from({ length: 9 }, (_, index) => ({ activityId: activity.id, companyId: `c${index + 1}`, status: 'NOT_STARTED' as const, progressCurrent: 0, progressTotal: 6, lastUpdate: 'pendiente' }))
-  if (activity.id === 'who-am-i') return Array.from({ length: 9 }, (_, index) => ({ activityId: activity.id, companyId: `c${index + 1}`, status: 'NOT_STARTED' as const, progressCurrent: 0, progressTotal: 1, lastUpdate: 'pendiente' }))
-  return Array.from({ length: 9 }, (_, index) => ({ activityId: activity.id, companyId: `c${index + 1}`, status: 'NOT_STARTED' as const, progressCurrent: 0, progressTotal: 1, lastUpdate: 'pendiente' }))
+  if (activity.id === 'plagues') return Array.from({ length: 12 }, (_, index) => ({ activityId: activity.id, companyId: `c${index + 1}`, status: 'NOT_STARTED' as const, progressCurrent: 0, progressTotal: 7, lastUpdate: 'pendiente' }))
+  if (activity.id === 'desert') return Array.from({ length: 12 }, (_, index) => ({ activityId: activity.id, companyId: `c${index + 1}`, status: 'NOT_STARTED' as const, progressCurrent: 0, progressTotal: 6, lastUpdate: 'pendiente' }))
+  if (activity.id === 'who-am-i') return Array.from({ length: 12 }, (_, index) => ({ activityId: activity.id, companyId: `c${index + 1}`, status: 'NOT_STARTED' as const, progressCurrent: 0, progressTotal: 1, lastUpdate: 'pendiente' }))
+  return Array.from({ length: 12 }, (_, index) => ({ activityId: activity.id, companyId: `c${index + 1}`, status: 'NOT_STARTED' as const, progressCurrent: 0, progressTotal: 1, lastUpdate: 'pendiente' }))
 })
 
 export const gameRewards: GameReward[] = [

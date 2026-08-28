@@ -5,9 +5,9 @@ const lastNames = ['Pereyra', 'Maidana', 'Ledesma', 'Acosta', 'Benítez', 'Ferre
 const stakes = ['Estaca Horizonte', 'Estaca del Norte', 'Estaca Río Claro', 'Estaca Amanecer']
 const wards = ['Barrio Centro', 'Barrio Los Álamos', 'Barrio Costanera', 'Barrio Esperanza', 'Barrio San Martín', 'Barrio La Colina', 'Barrio Las Heras', 'Barrio del Sol', 'Barrio Jardín', 'Barrio Oeste', 'Barrio Belgrano', 'Barrio Nuevo']
 
-const companySizes = [0, 0, 0, 0, 0, 0, 0, 0, 0]
-const companyThemes = ['lagoon', 'ember', 'cloud', 'gold', 'stone', 'path', 'lagoon', 'ember', 'cloud'] as const
-const companyIcons = ['wave', 'fire', 'cloud', 'manna', 'mountain', 'path', 'star', 'fire', 'cloud'] as const
+const companySizes = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+const companyThemes = ['lagoon', 'ember', 'cloud', 'gold', 'stone', 'path', 'lagoon', 'ember', 'cloud', 'gold', 'stone', 'path'] as const
+const companyIcons = ['wave', 'fire', 'cloud', 'manna', 'mountain', 'path', 'star', 'fire', 'cloud', 'manna', 'mountain', 'path'] as const
 
 export const companies: Company[] = companySizes.map((currentSize, index) => ({
   id: `c${index + 1}`,
