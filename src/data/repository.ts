@@ -181,17 +181,23 @@ export async function saveRemoteGameStates(eventId: string, activityId: string, 
   ])
   if (activityError || companiesError) throw activityError ?? companiesError
   const companyIdByUiId = new Map((companies ?? []).map((company) => [`c${company.number}`, company.id]))
-  const rows = states.map((state) => ({
-    activity_id: activity.id,
-    company_id: companyIdByUiId.get(state.companyId) ?? state.companyId,
-    status: state.status,
-    progress_current: state.progressCurrent,
-    progress_total: state.progressTotal,
-    elapsed_ms: state.elapsedMs ?? null,
-    official_time_ms: state.officialTimeMs ?? null,
-    points: state.points ?? null,
-    under_review: state.underReview ?? false
-  }))
+  const updatedAt = new Date().toISOString()
+  const rows = states.map((state) => {
+    const companyId = companyIdByUiId.get(state.companyId)
+    if (state.activityId !== activityId || !companyId) throw new Error(`Estado de juego inválido para ${state.companyId}.`)
+    return {
+      activity_id: activity.id,
+      company_id: companyId,
+      status: state.status,
+      progress_current: state.progressCurrent,
+      progress_total: state.progressTotal,
+      elapsed_ms: state.elapsedMs ?? null,
+      official_time_ms: state.officialTimeMs ?? null,
+      points: state.points ?? null,
+      under_review: state.underReview ?? false,
+      updated_at: updatedAt
+    }
+  })
   const { error } = await supabase.from('company_activity_states').upsert(rows, { onConflict: 'activity_id,company_id' })
   if (error) throw error
 }

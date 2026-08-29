@@ -430,27 +430,31 @@ function GamesPage({ role, companies, section = 'activity', projector = false, m
   const [generalRunning, setGeneralRunning] = useState(false)
   const [rewardState, setRewardState] = useState(gameRewards)
   const [states, setStates] = useState<CompanyActivityState[]>([])
+  const statesRef = useRef<CompanyActivityState[]>([])
+  const pendingGameStatesRef = useRef(new Map<string, CompanyActivityState>())
+  const gameSaveQueuesRef = useRef(new Map<string, Promise<void>>())
   const [remoteBoard, setRemoteBoard] = useState<RemoteGameBoard | null>(null)
+  const boardRequestRef = useRef(0)
   const [selectedCompanyId, setSelectedCompanyId] = useState('c4')
 
   useEffect(() => { if (!Object.values(runningCompanies).some(Boolean)) return; const interval = window.setInterval(() => { setCompanyTimers((timers) => Object.fromEntries(Object.entries(timers).map(([companyId, seconds]) => [companyId, runningCompanies[companyId] ? seconds + 1 : seconds]))); setStates((items) => items.map((state) => runningCompanies[state.companyId] ? { ...state, elapsedMs: ((companyTimers[state.companyId] ?? Math.floor((state.elapsedMs ?? 0) / 1000)) + 1) * 1000 } : state)) }, 1000); return () => window.clearInterval(interval) }, [runningCompanies, companyTimers])
   useEffect(() => { if (!generalRunning) return; const interval = window.setInterval(() => setGeneralSeconds((seconds) => { if (seconds <= 1) { setGeneralRunning(false); return 0 } return seconds - 1 }), 1000); return () => window.clearInterval(interval) }, [generalRunning])
-  const refreshRemoteBoard = () => { void loadRemoteGameBoard(import.meta.env.VITE_EVENT_ID).then(setRemoteBoard).catch((error) => console.error('No se pudo cargar el tablero remoto:', error)) }
+  const refreshRemoteBoard = () => { const requestId = ++boardRequestRef.current; void loadRemoteGameBoard(import.meta.env.VITE_EVENT_ID).then((board) => { if (requestId === boardRequestRef.current) setRemoteBoard(board) }).catch((error) => console.error('No se pudo cargar el tablero remoto:', error)) }
   useEffect(() => {
     refreshRemoteBoard()
-    if (!projector) return
     const channel = supabase.channel('projector-game-board')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'company_activity_states' }, refreshRemoteBoard)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'activity_results' }, refreshRemoteBoard)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tournaments' }, refreshRemoteBoard)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tournament_matches' }, refreshRemoteBoard)
       .subscribe()
-    const interval = window.setInterval(refreshRemoteBoard, 5000)
-    return () => { void supabase.removeChannel(channel); window.clearInterval(interval) }
+    const interval = projector ? window.setInterval(refreshRemoteBoard, 5000) : undefined
+    return () => { void supabase.removeChannel(channel); if (interval !== undefined) window.clearInterval(interval) }
   }, [projector])
   useEffect(() => {
     if (!remoteBoard) return
-    const next = remoteBoard.statesByActivity[activeId] ?? []
+    const next = (remoteBoard.statesByActivity[activeId] ?? []).map((state) => pendingGameStatesRef.current.get(`${activeId}:${state.companyId}`) ?? state)
+    statesRef.current = next
     setStates(next)
     setSelectedCompanyId((current) => next.some((state) => state.companyId === current) ? current : next[0]?.companyId ?? current)
     setCompanyTimers(Object.fromEntries(next.map((state) => [state.companyId, Math.floor((state.elapsedMs ?? 0) / 1000)])))
@@ -458,21 +462,44 @@ function GamesPage({ role, companies, section = 'activity', projector = false, m
     setGeneralSeconds((gameActivities.find((activity) => activity.id === activeId)?.durationMinutes ?? 45) * 60)
     setGeneralRunning(false)
   }, [activeId, remoteBoard])
+  useEffect(() => { if (activeId === activeFromRoute.id) return; statesRef.current = []; setStates([]); setActiveId(activeFromRoute.id) }, [activeFromRoute.id])
   const activeActivity = gameActivities.find((activity) => activity.id === activeId) ?? gameActivities[3]
   const companyName = (id?: string) => companies.find((company) => company.id === id)?.name ?? companies.find((company) => company.number === Number(id?.replace(/^c/, '')))?.name ?? id?.toUpperCase() ?? 'Compañía'
-  const changeActivity = (id: string) => { setActiveId(id); navigate(id === 'masters' ? '/games/tournament' : `/games/activity/${id}`) }
+  const changeActivity = (id: string) => { statesRef.current = []; setStates([]); setActiveId(id); navigate(id === 'masters' ? '/games/tournament' : `/games/activity/${id}`) }
   const updateReward = (reward: GameReward) => { const next: RewardStatus = reward.status === 'PENDING' ? 'READY' : reward.status === 'READY' ? 'DELIVERED' : reward.status; setRewardState((items) => items.map((item) => item.id === reward.id ? { ...item, status: next, deliveredAt: next === 'DELIVERED' ? 'Ahora' : item.deliveredAt, deliveredBy: next === 'DELIVERED' ? 'Mariana' : item.deliveredBy } : item)) }
   const toggleCompanyTimer = (companyId: string) => { if (!canManage) return; setRunningCompanies((running) => ({ ...running, [companyId]: !running[companyId] })) }
   const toggleGeneralTimer = () => { if (canManage) setGeneralRunning((running) => !running) }
-  const persistStates = (next: CompanyActivityState[]) => { if (remoteBoard && next.length) void saveRemoteGameStates(import.meta.env.VITE_EVENT_ID, activeId, next).catch((error) => console.error('No se pudo guardar el estado del juego:', error)) }
-  const updateStates = (updater: (items: CompanyActivityState[]) => CompanyActivityState[]) => setStates((items) => { const next = updater(items); persistStates(next); return next })
+  const persistStates = (changed: CompanyActivityState[]) => {
+    if (!remoteBoard) return
+    const activityId = activeId
+    changed.forEach((state) => {
+      const key = `${activityId}:${state.companyId}`
+      pendingGameStatesRef.current.set(key, state)
+      const previous = gameSaveQueuesRef.current.get(key) ?? Promise.resolve()
+      const save = previous.catch(() => undefined).then(() => saveRemoteGameStates(import.meta.env.VITE_EVENT_ID, activityId, [state]))
+      gameSaveQueuesRef.current.set(key, save)
+      void save.then(() => {
+        if (gameSaveQueuesRef.current.get(key) !== save) return
+        gameSaveQueuesRef.current.delete(key)
+        pendingGameStatesRef.current.delete(key)
+        refreshRemoteBoard()
+      }).catch((error) => {
+        console.error('No se pudo guardar el estado del juego:', error)
+        if (gameSaveQueuesRef.current.get(key) !== save) return
+        gameSaveQueuesRef.current.delete(key)
+        pendingGameStatesRef.current.delete(key)
+        refreshRemoteBoard()
+      })
+    })
+  }
+  const updateStates = (updater: (items: CompanyActivityState[]) => CompanyActivityState[]) => { const current = statesRef.current; const next = updater(current); const changed = next.filter((state, index) => state !== current[index]); statesRef.current = next; setStates(next); persistStates(changed) }
   const resetRedSeaChecklists = () => { if (!canManage || activeId !== 'red-sea') return; setGeneralRunning(false); setGeneralSeconds((gameActivities.find((activity) => activity.id === 'red-sea')?.durationMinutes ?? 45) * 60); updateStates((items) => items.map((state) => ({ ...state, progressCurrent: 0, status: 'NOT_STARTED', officialTimeMs: undefined, elapsedMs: undefined, lastUpdate: 'reiniciado' }))) }
   const elapsedSeconds = () => ((gameActivities.find((activity) => activity.id === activeId)?.durationMinutes ?? 45) * 60) - generalSeconds
   const validateChallenge = () => { if (!canManage) return; const elapsed = ['plagues', 'red-sea', 'desert'].includes(activeId) ? companyTimers[selectedCompanyId] ?? 0 : Math.max(0, elapsedSeconds()); updateStates((items) => items.map((state) => { if (state.companyId !== selectedCompanyId || state.progressCurrent >= state.progressTotal) return state; const progressCurrent = state.progressCurrent + 1; const waitForFinalConfirmation = ['plagues', 'red-sea', 'desert'].includes(activeId) && progressCurrent === state.progressTotal; return { ...state, progressCurrent, status: waitForFinalConfirmation ? 'IN_PROGRESS' : progressCurrent === state.progressTotal ? 'FINISHED' : 'IN_PROGRESS', officialTimeMs: !waitForFinalConfirmation && progressCurrent === state.progressTotal ? elapsed * 1000 : state.officialTimeMs, elapsedMs: elapsed * 1000, lastUpdate: 'ahora' } })) }
   const markGameRealized = () => { if (!canManage) return; const elapsed = Math.max(0, elapsedSeconds()); setGeneralRunning(false); updateStates((items) => items.map((state) => state.companyId === selectedCompanyId && state.status !== 'FINISHED' ? { ...state, status: 'REALIZED', elapsedMs: elapsed * 1000, lastUpdate: 'juego realizado' } : state)) }
   const completeWhoAmI = () => { if (!canManage || activeId !== 'who-am-i') return; updateStates((items) => items.map((state) => state.companyId === selectedCompanyId ? { ...state, progressCurrent: state.progressTotal, status: 'FINISHED', lastUpdate: 'realizado' } : state)) }
   const completePlagues = () => { if (!canManage || activeId !== 'plagues') return; const elapsed = companyTimers[selectedCompanyId] ?? 0; setRunningCompanies((running) => ({ ...running, [selectedCompanyId]: false })); updateStates((items) => items.map((state) => state.companyId === selectedCompanyId && state.progressCurrent >= state.progressTotal ? { ...state, status: 'FINISHED', officialTimeMs: elapsed * 1000, elapsedMs: elapsed * 1000, lastUpdate: 'realizado' } : state)) }
-  const editGameTime = (companyId: string, seconds: number) => { if (!canManage || !['plagues', 'red-sea', 'desert'].includes(activeId)) return; setRunningCompanies((running) => ({ ...running, [companyId]: false })); setCompanyTimers((timers) => ({ ...timers, [companyId]: seconds })); updateStates((items) => items.map((state) => state.companyId === companyId ? { ...state, status: 'FINISHED', officialTimeMs: seconds * 1000, elapsedMs: seconds * 1000, lastUpdate: 'tiempo cargado manualmente' } : state)) }
+  const editGameTime = (companyId: string, seconds: number) => { if (!canManage || !['plagues', 'red-sea', 'desert'].includes(activeId)) return; setRunningCompanies((running) => ({ ...running, [companyId]: false })); setCompanyTimers((timers) => ({ ...timers, [companyId]: seconds })); updateStates((items) => items.map((state) => state.companyId === companyId ? { ...state, status: 'FINISHED', progressCurrent: state.progressTotal, officialTimeMs: seconds * 1000, elapsedMs: seconds * 1000, lastUpdate: 'tiempo cargado manualmente' } : state)) }
   const completeRedSea = () => { if (!canManage || activeId !== 'red-sea') return; const elapsed = companyTimers[selectedCompanyId] ?? 0; setRunningCompanies((running) => ({ ...running, [selectedCompanyId]: false })); updateStates((items) => items.map((state) => state.companyId === selectedCompanyId && state.progressCurrent >= state.progressTotal ? { ...state, status: 'FINISHED', officialTimeMs: elapsed * 1000, elapsedMs: elapsed * 1000, lastUpdate: 'realizado' } : state)) }
   const completeDesert = () => { if (!canManage || activeId !== 'desert') return; const elapsed = companyTimers[selectedCompanyId] ?? 0; setRunningCompanies((running) => ({ ...running, [selectedCompanyId]: false })); updateStates((items) => items.map((state) => state.companyId === selectedCompanyId && state.progressCurrent >= state.progressTotal ? { ...state, status: 'FINISHED', officialTimeMs: elapsed * 1000, elapsedMs: elapsed * 1000, lastUpdate: 'CAMINO completo' } : state)) }
   if (projector) return <ProjectorGameView activity={activeActivity} states={remoteBoard?.statesByActivity[activeId] ?? []} statesByActivity={remoteBoard?.statesByActivity ?? {}} tournament={remoteBoard?.tournament ?? null} pointsByCompany={remoteBoard?.pointsByCompany ?? {}} companies={companies} companyName={companyName} />
@@ -487,7 +514,7 @@ function GamesPage({ role, companies, section = 'activity', projector = false, m
 function GameHeader({ active, canManage, onProjector }: { active: GameActivity; canManage: boolean; onProjector: () => void }) { return <header className="games-hero"><img src={assetPath('/assets/meetup-hero.jpg')} alt="MeetUP 2026: camino entre las aguas" /><div className="games-hero-overlay" /><div className="games-hero-content"><div><p className="eyebrow light">MEETUP 2026 · JUEGOS Y RESULTADOS</p><h1>El camino se construye<br /><em>en equipo.</em></h1><p>Seguimiento de actividades, tiempos y premios en un solo lugar.</p></div><div className="games-live-lockup"><span><i /> EN VIVO</span><strong>{active.name}</strong><small>{active.startTime} · {active.durationMinutes} minutos · {active.scoreType === 'NONE' ? 'Sin ranking oficial' : active.scoreType === 'TIME_ASC' ? 'Ranking por tiempo' : 'Puntaje definido'}</small><div className="games-hero-actions"><button className="button light-button" onClick={onProjector}><Eye size={16} /> Modo proyector</button>{canManage && <Link to={`/games/activity/${active.id}/manage`} className="hero-manage-link">Modo juez <ArrowRight size={14} /></Link>}</div></div></div></header> }
 
 function ManualTimeManager({ activity, states, companyName, canManage, onEditTime }: { activity: GameActivity; states: CompanyActivityState[]; companyName: (id?: string) => string; canManage: boolean; onEditTime: (companyId: string, seconds: number) => void }) {
-  return <div className="activity-live-page"><div className="activity-live-summary"><div><p className="eyebrow">ACTIVIDAD {String(activity.order).padStart(2, '0')}</p><h2>{activity.name}</h2><p>Tocá una compañía para cargar o cambiar su tiempo final. Los tiempos ya guardados se mantienen hasta que los edites.</p></div><div className="activity-summary-numbers"><span><strong>{states.filter((state) => state.officialTimeMs !== undefined).length}</strong> tiempos cargados</span><span><strong>{states.length}</strong> compañías</span></div></div><section className="live-company-grid">{states.map((state) => <CompanyTimerCard key={state.companyId} state={state.progressTotal ? state : { ...state, progressCurrent: state.officialTimeMs === undefined ? 0 : 1, progressTotal: 1 }} activity={activity} companyName={companyName} seconds={Math.floor((state.elapsedMs ?? state.officialTimeMs ?? 0) / 1000)} running={false} canManage={false} canEditTime={canManage} editOnSelect={canManage} onEditTime={onEditTime} selected={false} onSelect={() => undefined} onToggleTimer={() => undefined} />)}</section></div>
+  return <div className="activity-live-page"><div className="activity-live-summary"><div><p className="eyebrow">ACTIVIDAD {String(activity.order).padStart(2, '0')}</p><h2>{activity.name}</h2><p>Tocá una compañía para cargar o cambiar su tiempo final. Los tiempos ya guardados se mantienen hasta que los edites.</p></div><div className="activity-summary-numbers"><span><strong>{states.filter((state) => state.officialTimeMs !== undefined).length}</strong> tiempos cargados</span><span><strong>{states.length}</strong> compañías</span></div></div><section className="live-company-grid">{states.map((state) => <CompanyTimerCard key={state.companyId} state={state.progressTotal ? state : { ...state, progressCurrent: state.officialTimeMs === undefined ? 0 : 1, progressTotal: 1 }} activity={activity} companyName={companyName} seconds={Math.floor((state.officialTimeMs ?? state.elapsedMs ?? 0) / 1000)} running={false} canManage={false} canEditTime={canManage} editOnSelect={canManage} onEditTime={onEditTime} selected={false} onSelect={() => undefined} onToggleTimer={() => undefined} />)}</section></div>
 }
 
 function GamesDashboard({ active, states, rewards, companies, companyName, onOpenLive, onOpenActivity }: { active: GameActivity; states: CompanyActivityState[]; rewards: GameReward[]; companies: Company[]; companyName: (id?: string) => string; onOpenLive: () => void; onOpenActivity: () => void }) {
@@ -498,7 +525,7 @@ function GamesDashboard({ active, states, rewards, companies, companyName, onOpe
 
 function CompanyTimerCard({ state, activity, companyName, seconds, running, canManage, canEditTime, editOnSelect, onEditTime, selected, onSelect, onToggleTimer }: { state: CompanyActivityState; activity: GameActivity; companyName: (id?: string) => string; seconds: number; running: boolean; canManage: boolean; canEditTime?: boolean; editOnSelect?: boolean; onEditTime?: (companyId: string, seconds: number) => void; selected: boolean; onSelect: () => void; onToggleTimer: () => void }) {
   const closed = state.status === 'FINISHED' || state.status === 'REALIZED'
-  const displaySeconds = closed && state.elapsedMs !== undefined ? Math.floor(state.elapsedMs / 1000) : seconds
+  const displaySeconds = closed && (state.officialTimeMs !== undefined || state.elapsedMs !== undefined) ? Math.floor((state.officialTimeMs ?? state.elapsedMs ?? 0) / 1000) : seconds
   const editTime = () => { const value = window.prompt('Nuevo tiempo en formato MM:SS', formatGameTime(displaySeconds * 1000)); if (value === null) return; const match = value.trim().match(/^(\d{1,3}):([0-5]\d)$/); if (!match) { window.alert('Usá el formato MM:SS (por ejemplo, 24:18)'); return }; onEditTime?.(state.companyId, Number(match[1]) * 60 + Number(match[2])) }
   return <article className={`game-company-card timed-company-card activity-${activity.id} ${selected ? 'selected' : ''} ${closed ? 'completed' : ''} ${state.underReview ? 'review' : ''}`} onClick={editOnSelect ? editTime : onSelect}><div className="game-company-top"><span className="company-mini-mark">{state.companyId.replace('c', '')}</span><div><strong>{companyName(state.companyId)}</strong><StateLabel status={state.status} /></div>{closed ? <CheckCircle2 size={19} className="company-crown" /> : <Radio size={18} className="company-radio" />}</div><div className="company-timer-line"><Clock3 size={16} /><strong>{formatGameTime(displaySeconds * 1000)}</strong><span className={running ? 'timer-running' : ''}>{running ? 'Cronómetro activo' : state.status === 'REALIZED' ? 'Juego realizado' : state.status === 'FINISHED' ? 'Tiempo final' : 'Tiempo pendiente'}</span></div><div className="game-progress-copy"><span>{state.progressCurrent} / {state.progressTotal} {activity.id === 'plagues' ? 'actividades' : 'desafíos'}</span><strong>{Math.round((state.progressCurrent / state.progressTotal) * 100)}%</strong></div><div className="game-progress"><span style={{ width: `${(state.progressCurrent / state.progressTotal) * 100}%` }} /></div><div className="game-company-footer"><span>{state.status === 'REALIZED' ? 'Juego realizado' : state.status === 'FINISHED' ? 'Resultado final' : state.status === 'IN_PROGRESS' ? 'En juego' : 'No inició'}</span>{canEditTime && <button className="button outline edit-time-button" onClick={(event) => { event.stopPropagation(); editTime() }}>{state.officialTimeMs === undefined && state.elapsedMs === undefined ? 'Cargar tiempo' : 'Editar tiempo'}</button>}{canManage && !closed && <button className="button outline timer-button" onClick={(event) => { event.stopPropagation(); onToggleTimer() }}>{running ? <><Pause size={13} /> Pausar</> : <><Play size={13} /> Iniciar</>}</button>}</div></article>
 }
