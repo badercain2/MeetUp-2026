@@ -228,6 +228,15 @@ em { font-family:'Cinzel',Georgia,serif; font-weight:600; font-style:normal; col
 .dietary-info-row span svg { color:#b4842e; }
 .dietary-info-row strong { color:#5d4c27; font-size:12px; font-weight:600; line-height:1.4; }
 .tournament-draw-button { width:100%; min-height:48px; display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:10px; border:1px solid #d9b765; border-radius:12px; color:#7c5a1e; background:#fff5da; font:inherit; font-size:11px; font-weight:700; cursor:pointer; }
+.tournament-assignment-editor { display:grid; gap:16px; margin-bottom:12px; padding:18px; border:1px solid rgba(217,183,101,.55); border-radius:15px; background:linear-gradient(125deg,#fff9e9,#f3fbf8); }
+.tournament-assignment-editor h2 { margin:4px 0; color:#173d47; font-size:20px; }
+.tournament-assignment-editor > div > span { color:#617b79; font-size:10px; line-height:1.5; }
+.tournament-assignment-groups { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:11px; }
+.tournament-assignment-groups article { display:grid; gap:8px; padding:12px; border:1px solid rgba(51,112,111,.2); border-radius:11px; background:#fff; }
+.tournament-assignment-groups article > strong { color:#a77825; font-size:11px; letter-spacing:.12em; }
+.tournament-assignment-groups label { display:grid; gap:4px; }
+.tournament-assignment-groups label span { color:#68817e; font-size:8px; font-weight:700; text-transform:uppercase; }
+.tournament-assignment-groups select { width:100%; min-height:38px; padding:0 8px; color:#173d47; border:1px solid #bfd5d0; border-radius:8px; background:#f8fcfa; font:inherit; font-size:10px; font-weight:650; }
 .tournament-draw-backdrop { position:fixed; z-index:40; inset:0; display:grid; place-items:center; padding:20px; background:rgba(3,19,27,.72); }
 .tournament-draw-modal { width:min(94vw,460px); padding:30px 25px 25px; border:1px solid rgba(224,189,109,.5); border-radius:20px; color:#eaf2eb; background:#103b4b; box-shadow:0 20px 70px rgba(0,0,0,.35); text-align:center; animation:drawModalIn .2s ease-out; }
 .draw-spinner { width:70px; height:70px; display:grid; place-items:center; margin:0 auto 17px; border:1px solid rgba(224,189,109,.5); border-radius:50%; color:#f2cc79; background:#164656; }
@@ -240,7 +249,7 @@ em { font-family:'Cinzel',Georgia,serif; font-weight:600; font-style:normal; col
 .draw-groups span { color:#edf4ee; font-size:11px; font-weight:600; text-align:right; }
 @keyframes drawSpin { to { transform:rotate(360deg); } }
 @keyframes drawModalIn { from { opacity:0; transform:scale(.94); } to { opacity:1; transform:scale(1); } }
-@media (max-width:760px) { .participant-profile-block { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:760px) { .participant-profile-block { grid-template-columns:repeat(2,minmax(0,1fr)); }.tournament-assignment-editor { padding:14px; }.tournament-assignment-groups { grid-template-columns:1fr; } }
 .projector-day-progress { margin-top:26px; padding:15px 0 3px; border-top:1px solid rgba(151,202,194,.17); }.projector-day-label,.projector-day-times { display:flex; justify-content:space-between; align-items:center; }.projector-day-label span { color:#70c9bd; font-size:9px; font-weight:700; letter-spacing:.14em; }.projector-day-label strong { color:#f0d183; font-family:'Cinzel',serif; font-size:24px; }.projector-day-track { height:20px; margin-top:10px; overflow:hidden; border:1px solid rgba(151,202,194,.3); border-radius:99px; background:rgba(5,28,41,.85); }.projector-day-track i { display:block; height:100%; min-width:0; border-radius:inherit; background:linear-gradient(90deg,#54b9a9,#e5bd6b); box-shadow:0 0 15px rgba(102,205,178,.45); transition:width .5s ease; }.projector-day-times { margin-top:6px; color:#91b2ad; font-size:9px; }
 .projector-day-progress.transition-warning { border-top-color:#d94b4b; animation:projector-warning-pulse 1.2s ease-in-out infinite; }.projector-day-progress.transition-warning .projector-day-label span,.projector-day-progress.transition-warning .projector-day-label strong,.projector-day-progress.transition-warning .projector-day-times { color:#ff8b82; }.projector-day-progress.transition-warning .projector-day-track { border-color:#e15b57; box-shadow:0 0 0 2px rgba(225,91,87,.12); }.projector-day-progress.transition-warning .projector-day-track i { background:#e04f4f; box-shadow:0 0 18px rgba(255,78,78,.7); }.projector-transition-alert { display:flex; align-items:center; justify-content:center; gap:15px; margin-top:13px; padding:11px 15px; color:#fff; border:1px solid #ff7970; border-radius:9px; background:#a92e35; box-shadow:0 0 20px rgba(255,55,55,.3); }.projector-transition-alert strong { font-size:12px; letter-spacing:.12em; }.projector-transition-alert span { font-size:11px; } @keyframes projector-warning-pulse { 50% { box-shadow:0 0 22px rgba(226,61,61,.28); } }
 .projector-game-title .projector-clock,.projector-game .projector-schedule-timeline { display:none; }
