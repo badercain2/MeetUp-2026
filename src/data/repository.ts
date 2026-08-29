@@ -6,19 +6,28 @@ let participantsState: Participant[] = []
 let companiesState: Company[] = []
 let localMode = false
 const localStorageKey = 'meetup-2026-local-data-v1'
+type PendingLocalOperation =
+  | { type: 'member'; participantId: string; isChurchMember: boolean }
+  | { type: 'authorization'; participantId: string; authorizationStatus: Participant['authorizationStatus'] }
+  | { type: 'medical'; participantId: string; medicalInfo: string }
+  | { type: 'assign'; participantId: string; companyId: string }
+  | { type: 'checkin'; participantId: string; companyId: string; materials: Participant['materials'] }
+  | { type: 'revert'; participantId: string }
+let pendingLocalOperations: PendingLocalOperation[] = []
 
 function persistLocalState() {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(localStorageKey, JSON.stringify({ participants: participantsState, companies: companiesState }))
+  window.localStorage.setItem(localStorageKey, JSON.stringify({ participants: participantsState, companies: companiesState, pending: pendingLocalOperations }))
 }
 
 function loadLocalState() {
   if (typeof window !== 'undefined') {
     try {
-      const stored = JSON.parse(window.localStorage.getItem(localStorageKey) ?? 'null') as { participants?: Participant[]; companies?: Company[] } | null
+      const stored = JSON.parse(window.localStorage.getItem(localStorageKey) ?? 'null') as { participants?: Participant[]; companies?: Company[]; pending?: PendingLocalOperation[] } | null
       if (stored?.participants?.length && stored.companies?.length) {
         participantsState = stored.participants
         companiesState = stored.companies
+        pendingLocalOperations = stored.pending ?? []
         return true
       }
     } catch {
@@ -27,6 +36,7 @@ function loadLocalState() {
   }
   participantsState = seedParticipants.map((participant) => ({ ...participant, materials: { ...participant.materials } }))
   companiesState = seedCompanies.map((company) => ({ ...company, theme: { ...company.theme } }))
+  pendingLocalOperations = []
   persistLocalState()
   return participantsState.length > 0
 }
@@ -41,6 +51,11 @@ export function activateLocalMode() {
 }
 
 export const isLocalMode = () => localMode
+
+function queueLocalOperation(operation: PendingLocalOperation) {
+  pendingLocalOperations = [...pendingLocalOperations, operation]
+  persistLocalState()
+}
 
 function updateLocalParticipant(participantId: string, updater: (participant: Participant) => Participant) {
   const current = participantsState.find((participant) => participant.id === participantId)
@@ -241,6 +256,44 @@ export async function hydrateRepositories(eventId: string) {
   }
 }
 
+export async function syncLocalChanges(eventId: string) {
+  if (!localMode || pendingLocalOperations.length === 0) return false
+  const operations = [...pendingLocalOperations]
+  localMode = false
+  try {
+    for (const operation of operations) {
+      if (operation.type === 'member') {
+        const { error } = await supabase.from('participants').update({ is_church_member: operation.isChurchMember }).eq('id', operation.participantId)
+        if (error) throw error
+      } else if (operation.type === 'authorization') {
+        const { error } = await supabase.from('participants').update({ authorization_status: operation.authorizationStatus, is_exception: operation.authorizationStatus !== 'confirmed' }).eq('id', operation.participantId)
+        if (error) throw error
+      } else if (operation.type === 'medical') {
+        const { error } = await supabase.from('participants').update({ medical_info: operation.medicalInfo || null }).eq('id', operation.participantId)
+        if (error) throw error
+      } else if (operation.type === 'assign') {
+        const { error } = await supabase.rpc('assign_participant_company', { p_participant_id: operation.participantId, p_company_id: operation.companyId })
+        if (error) throw error
+      } else if (operation.type === 'checkin') {
+        const { error } = await supabase.rpc('register_checkin', { p_participant_id: operation.participantId, p_requested_company_id: operation.companyId, p_shirt_delivered: operation.materials.shirt, p_card_pack_delivered: operation.materials.cardPack, p_credential_delivered: operation.materials.credential })
+        if (error) throw error
+      } else if (operation.type === 'revert') {
+        const { error } = await supabase.rpc('revert_checkin', { p_participant_id: operation.participantId })
+        if (error) throw error
+      }
+    }
+    const hydrated = await hydrateRemoteRepositories(eventId)
+    if (!hydrated) throw new Error('No se pudo confirmar la sincronización local.')
+    pendingLocalOperations = []
+    persistLocalState()
+    return true
+  } catch (error) {
+    localMode = true
+    console.warn('Todavía no se pudieron sincronizar los cambios locales.', error)
+    return false
+  }
+}
+
 export async function registerCheckin(participantId: string, companyId: string | undefined, materials: Participant['materials']) {
   if (localMode) return registerLocalCheckin(participantId, companyId, materials)
   try {
@@ -270,6 +323,7 @@ function registerLocalCheckin(participantId: string, companyId: string | undefin
   const checkedInAt = new Date().toISOString()
   updateLocalParticipant(participantId, (current) => ({ ...current, companyId: selectedCompanyId, checkedIn: true, checkedInAt: new Date(checkedInAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }), checkedInBy: 'LOCAL', materials: { ...materials } }))
   companiesState = companiesState.map((company) => company.id === selectedCompanyId ? { ...company, checkedInSize: (company.checkedInSize ?? 0) + 1 } : company)
+  queueLocalOperation({ type: 'checkin', participantId, companyId: selectedCompanyId, materials })
   persistLocalState()
   return { company_id: selectedCompanyId, checked_in_at: checkedInAt }
 }
@@ -299,6 +353,7 @@ function revertLocalCheckin(participantId: string) {
   const companyId = participant.companyId
   if (companyId) companiesState = companiesState.map((company) => company.id === companyId ? { ...company, currentSize: Math.max(0, company.currentSize - 1), checkedInSize: participant.checkedIn ? Math.max(0, (company.checkedInSize ?? 0) - 1) : company.checkedInSize } : company)
   updateLocalParticipant(participantId, (current) => ({ ...current, companyId: undefined, checkedIn: false, checkedInAt: undefined, checkedInBy: undefined, materials: { shirt: false, cardPack: false, credential: false } }))
+  queueLocalOperation({ type: 'revert', participantId })
   persistLocalState()
   return { participant_id: participantId, company_id: companyId ?? '' }
 }
@@ -306,6 +361,7 @@ function revertLocalCheckin(participantId: string) {
 export async function updateParticipantAuthorization(participantId: string, authorizationStatus: Participant['authorizationStatus']) {
   if (localMode) {
     updateLocalParticipant(participantId, (participant) => ({ ...participant, authorizationStatus, isException: authorizationStatus !== 'confirmed' }))
+    queueLocalOperation({ type: 'authorization', participantId, authorizationStatus })
     return
   }
   try {
@@ -324,6 +380,7 @@ export async function updateParticipantAuthorization(participantId: string, auth
 export async function updateParticipantMemberStatus(participantId: string, isChurchMember: boolean) {
   if (localMode) {
     updateLocalParticipant(participantId, (participant) => ({ ...participant, isChurchMember }))
+    queueLocalOperation({ type: 'member', participantId, isChurchMember })
     return
   }
   try {
@@ -343,6 +400,7 @@ export async function assignParticipantCompany(participantId: string, companyId:
   if (localMode) {
     const updated = companyRepository.assign(participantId, companyId)
     if (!updated) throw new Error('No se encontró el participante en el modo local.')
+    queueLocalOperation({ type: 'assign', participantId, companyId })
     return { participant_id: participantId, company_id: companyId }
   }
   try {
@@ -470,6 +528,7 @@ function importParticipantsLocally(items: Participant[]) {
 export async function updateParticipantMedicalInfo(participantId: string, medicalInfo: string) {
   if (localMode) {
     updateLocalParticipant(participantId, (participant) => ({ ...participant, medicalInfo: medicalInfo || undefined }))
+    queueLocalOperation({ type: 'medical', participantId, medicalInfo })
     return
   }
   try {
