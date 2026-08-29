@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx'
 const eventId = '6add2995-c0cf-4a50-a65a-0905945c18e4'
 const workbookPath = process.argv.find((argument) => !argument.startsWith('-') && argument !== process.argv[0] && argument !== process.argv[1]) ?? 'Companias Meet UP.xlsx'
 const replaceExisting = process.argv.includes('--replace')
+const dietaryOnly = process.argv.includes('--update-dietary')
 
 const workbook = XLSX.read(fs.readFileSync(workbookPath), { type: 'buffer', cellDates: true })
 const sheet = workbook.Sheets[workbook.SheetNames[0]]
@@ -42,6 +43,29 @@ const participants = rows.map((row, index) => {
 
 const json = JSON.stringify(participants).replaceAll("'", "''")
 const source = `'${json}'::jsonb`
+if (dietaryOnly) {
+  const sql = `
+begin;
+with updated as (
+  update public.participants participant
+  set dietary_info = nullif(btrim(source.dietary_info), '')
+  from jsonb_to_recordset(${source}) as source(first_name text, last_name text, birth_date date, sex text, shirt_size text, dietary_info text, age integer, stake text, ward text, company_number integer, is_church_member boolean)
+  where participant.event_id = '${eventId}'
+    and participant.first_name = source.first_name
+    and participant.last_name = source.last_name
+    and participant.birth_date is not distinct from source.birth_date
+    and participant.age = source.age
+    and participant.stake = source.stake
+    and participant.ward = source.ward
+  returning participant.id
+)
+select count(*) as updated from updated;
+commit;
+`
+  execFileSync('supabase', ['db', 'query', '--linked', sql], { stdio: 'inherit' })
+  console.log(`Actualizada la información alimentaria de ${participants.length} filas del Excel sin modificar check-ins ni compañías.`)
+  process.exit(0)
+}
 const reset = replaceExisting ? `
 delete from public.checkins where event_id = '${eventId}';
 delete from public.material_deliveries where event_id = '${eventId}';
