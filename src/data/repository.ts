@@ -1,19 +1,65 @@
-import { exceptions as seedExceptions } from './mockData'
+import { companies as seedCompanies, exceptions as seedExceptions, participants as seedParticipants } from './mockData'
 import { supabase } from './supabase/client'
 import type { Company, CompanyActivityState, ExceptionItem, Participant } from '../types'
 
 let participantsState: Participant[] = []
 let companiesState: Company[] = []
+let localMode = false
+const localStorageKey = 'meetup-2026-local-data-v1'
+
+function persistLocalState() {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(localStorageKey, JSON.stringify({ participants: participantsState, companies: companiesState }))
+}
+
+function loadLocalState() {
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(localStorageKey) ?? 'null') as { participants?: Participant[]; companies?: Company[] } | null
+      if (stored?.participants?.length && stored.companies?.length) {
+        participantsState = stored.participants
+        companiesState = stored.companies
+        return true
+      }
+    } catch {
+      window.localStorage.removeItem(localStorageKey)
+    }
+  }
+  participantsState = seedParticipants.map((participant) => ({ ...participant, materials: { ...participant.materials } }))
+  companiesState = seedCompanies.map((company) => ({ ...company, theme: { ...company.theme } }))
+  persistLocalState()
+  return participantsState.length > 0
+}
+
+export function activateLocalMode() {
+  localMode = true
+  if (participantsState.length && companiesState.length) {
+    persistLocalState()
+    return true
+  }
+  return loadLocalState()
+}
+
+export const isLocalMode = () => localMode
+
+function updateLocalParticipant(participantId: string, updater: (participant: Participant) => Participant) {
+  const current = participantsState.find((participant) => participant.id === participantId)
+  if (!current) throw new Error('No se encontró el participante en el modo local.')
+  const updated = updater(current)
+  participantsState = participantsState.map((participant) => participant.id === participantId ? updated : participant)
+  persistLocalState()
+  return updated
+}
 
 export const participantRepository = {
   list: () => participantsState,
-  replace: (items: Participant[]) => { participantsState = items },
+  replace: (items: Participant[]) => { participantsState = items; if (localMode) persistLocalState() },
   findById: (id: string) => participantsState.find((participant) => participant.id === id),
-  update: (participant: Participant) => { participantsState = participantsState.map((item) => item.id === participant.id ? participant : item) }
+  update: (participant: Participant) => { participantsState = participantsState.map((item) => item.id === participant.id ? participant : item); if (localMode) persistLocalState() }
 }
 export const companyRepository = {
   list: () => companiesState,
-  replace: (items: Company[]) => { companiesState = items },
+  replace: (items: Company[]) => { companiesState = items; if (localMode) persistLocalState() },
   findById: (id: string) => companiesState.find((company) => company.id === id),
   assign: (participantId: string, companyId: string) => {
     const participant = participantsState.find((item) => item.id === participantId)
@@ -22,6 +68,7 @@ export const companyRepository = {
     companiesState = companiesState.map((company) => company.id === companyId ? { ...company, currentSize: company.currentSize + 1, checkedInSize: participant.checkedIn ? (company.checkedInSize ?? 0) + 1 : company.checkedInSize } : company)
     const updated = { ...participant, companyId }
     participantsState = participantsState.map((item) => item.id === participantId ? updated : item)
+    if (localMode) persistLocalState()
     return updated
   }
 }
@@ -157,7 +204,7 @@ export async function saveRemoteMusicPoints(eventId: string, scores: Record<stri
   if (error) throw error
 }
 
-export async function hydrateRepositories(eventId: string) {
+async function hydrateRemoteRepositories(eventId: string) {
   const [{ data: remoteParticipants, error: participantError }, { data: remoteCompanies, error: companyError }, { data: memberships }, { data: checkins }, { data: materials }] = await Promise.all([
     supabase.from('participants').select('*').eq('event_id', eventId),
     supabase.from('companies').select('*').eq('event_id', eventId).order('number'),
@@ -180,61 +227,167 @@ export async function hydrateRepositories(eventId: string) {
   const mappedCompanies: Company[] = remoteCompanies.map((company) => ({ id: company.id, number: company.number, name: company.name, targetSize: company.target_size, currentSize: (memberships ?? []).filter((membership) => membership.company_id === company.id).length, checkedInSize: (memberships ?? []).filter((membership) => membership.company_id === company.id && checkedInParticipantIds.has(membership.participant_id)).length, leaderParticipantId: company.leader_participant_id ?? undefined, theme: { colorToken: company.theme_color_token as Company['theme']['colorToken'], icon: company.theme_icon as Company['theme']['icon'] } }))
   participantRepository.replace(mappedParticipants)
   companyRepository.replace(mappedCompanies)
+  persistLocalState()
   return true
 }
 
+export async function hydrateRepositories(eventId: string) {
+  if (localMode) return loadLocalState()
+  try {
+    return await hydrateRemoteRepositories(eventId)
+  } catch (error) {
+    console.warn('Supabase no está disponible; se usará la copia local.', error)
+    return activateLocalMode()
+  }
+}
+
 export async function registerCheckin(participantId: string, companyId: string | undefined, materials: Participant['materials']) {
-  const { data, error } = await supabase.rpc('register_checkin', {
-    p_participant_id: participantId,
-    p_requested_company_id: companyId ?? null,
-    p_shirt_delivered: materials.shirt,
-    p_card_pack_delivered: materials.cardPack,
-    p_credential_delivered: materials.credential
-  })
-  if (error) throw new Error([error.message, error.details, error.hint].filter(Boolean).join(' · '))
-  return data as { company_id: string; checked_in_at: string }
+  if (localMode) return registerLocalCheckin(participantId, companyId, materials)
+  try {
+    const { data, error } = await supabase.rpc('register_checkin', {
+      p_participant_id: participantId,
+      p_requested_company_id: companyId ?? null,
+      p_shirt_delivered: materials.shirt,
+      p_card_pack_delivered: materials.cardPack,
+      p_credential_delivered: materials.credential
+    })
+    if (error) throw new Error([error.message, error.details, error.hint].filter(Boolean).join(' · '))
+    return data as { company_id: string; checked_in_at: string }
+  } catch (error) {
+    console.warn('No se pudo registrar el check-in remoto; se guardará localmente.', error)
+    activateLocalMode()
+    return registerLocalCheckin(participantId, companyId, materials)
+  }
+}
+
+function registerLocalCheckin(participantId: string, companyId: string | undefined, materials: Participant['materials']) {
+  const participant = participantRepository.findById(participantId)
+  if (!participant) throw new Error('No se encontró el participante en el modo local.')
+  if (participant.checkedIn) throw new Error('Este participante ya tiene check-in.')
+  const selectedCompanyId = companyId ?? participant.companyId
+  if (!selectedCompanyId) throw new Error('El participante necesita una compañía para registrar el check-in.')
+  if (participant.companyId !== selectedCompanyId) companyRepository.assign(participantId, selectedCompanyId)
+  const checkedInAt = new Date().toISOString()
+  updateLocalParticipant(participantId, (current) => ({ ...current, companyId: selectedCompanyId, checkedIn: true, checkedInAt: new Date(checkedInAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }), checkedInBy: 'LOCAL', materials: { ...materials } }))
+  companiesState = companiesState.map((company) => company.id === selectedCompanyId ? { ...company, checkedInSize: (company.checkedInSize ?? 0) + 1 } : company)
+  persistLocalState()
+  return { company_id: selectedCompanyId, checked_in_at: checkedInAt }
 }
 
 export async function revertCheckin(participantId: string) {
-  const { data, error } = await supabase.rpc('revert_checkin', { p_participant_id: participantId })
-  if (error) {
-    if (error.code === '42883' || error.message.includes('revert_checkin')) throw new Error('Supabase todavía no tiene aplicada la migración de deshacer check-in (00009/00010).')
-    throw error
+  if (localMode) return revertLocalCheckin(participantId)
+  try {
+    const { data, error } = await supabase.rpc('revert_checkin', { p_participant_id: participantId })
+    if (error) {
+      if (error.code === '42883' || error.message.includes('revert_checkin')) throw new Error('Supabase todavía no tiene aplicada la migración de deshacer check-in (00009/00010).')
+      throw error
+    }
+    const { data: remainingCheckins, error: verificationError } = await supabase.from('checkins').select('id').eq('participant_id', participantId).limit(1)
+    if (verificationError) throw verificationError
+    if (remainingCheckins?.length) throw new Error('La base confirmó la operación, pero el check-in todavía aparece registrado. Revisá las migraciones 00009/00010 en Supabase.')
+    return data as { participant_id: string; company_id: string }
+  } catch (error) {
+    console.warn('No se pudo revertir el check-in remoto; se guardará localmente.', error)
+    activateLocalMode()
+    return revertLocalCheckin(participantId)
   }
-  const { data: remainingCheckins, error: verificationError } = await supabase.from('checkins').select('id').eq('participant_id', participantId).limit(1)
-  if (verificationError) throw verificationError
-  if (remainingCheckins?.length) throw new Error('La base confirmó la operación, pero el check-in todavía aparece registrado. Revisá las migraciones 00009/00010 en Supabase.')
-  return data as { participant_id: string; company_id: string }
+}
+
+function revertLocalCheckin(participantId: string) {
+  const participant = participantRepository.findById(participantId)
+  if (!participant) throw new Error('No se encontró el participante en el modo local.')
+  const companyId = participant.companyId
+  if (companyId) companiesState = companiesState.map((company) => company.id === companyId ? { ...company, currentSize: Math.max(0, company.currentSize - 1), checkedInSize: participant.checkedIn ? Math.max(0, (company.checkedInSize ?? 0) - 1) : company.checkedInSize } : company)
+  updateLocalParticipant(participantId, (current) => ({ ...current, companyId: undefined, checkedIn: false, checkedInAt: undefined, checkedInBy: undefined, materials: { shirt: false, cardPack: false, credential: false } }))
+  persistLocalState()
+  return { participant_id: participantId, company_id: companyId ?? '' }
 }
 
 export async function updateParticipantAuthorization(participantId: string, authorizationStatus: Participant['authorizationStatus']) {
-  const { error } = await supabase
-    .from('participants')
-    .update({ authorization_status: authorizationStatus, is_exception: authorizationStatus !== 'confirmed' })
-    .eq('id', participantId)
-  if (error) throw error
+  if (localMode) {
+    updateLocalParticipant(participantId, (participant) => ({ ...participant, authorizationStatus, isException: authorizationStatus !== 'confirmed' }))
+    return
+  }
+  try {
+    const { error } = await supabase
+      .from('participants')
+      .update({ authorization_status: authorizationStatus, is_exception: authorizationStatus !== 'confirmed' })
+      .eq('id', participantId)
+    if (error) throw error
+  } catch (error) {
+    console.warn('No se pudo actualizar la autorización remota; se guardará localmente.', error)
+    activateLocalMode()
+    updateLocalParticipant(participantId, (participant) => ({ ...participant, authorizationStatus, isException: authorizationStatus !== 'confirmed' }))
+  }
+}
+
+export async function updateParticipantMemberStatus(participantId: string, isChurchMember: boolean) {
+  if (localMode) {
+    updateLocalParticipant(participantId, (participant) => ({ ...participant, isChurchMember }))
+    return
+  }
+  try {
+    const { error } = await supabase
+      .from('participants')
+      .update({ is_church_member: isChurchMember })
+      .eq('id', participantId)
+    if (error) throw error
+  } catch (error) {
+    console.warn('No se pudo actualizar el estado de miembro remoto; se guardará localmente.', error)
+    activateLocalMode()
+    updateLocalParticipant(participantId, (participant) => ({ ...participant, isChurchMember }))
+  }
 }
 
 export async function assignParticipantCompany(participantId: string, companyId: string) {
-  const { data, error } = await supabase.rpc('assign_participant_company', { p_participant_id: participantId, p_company_id: companyId })
-  if (error) throw new Error([error.message, error.details, error.hint].filter(Boolean).join(' · '))
-  return data as { participant_id: string; company_id: string }
+  if (localMode) {
+    const updated = companyRepository.assign(participantId, companyId)
+    if (!updated) throw new Error('No se encontró el participante en el modo local.')
+    return { participant_id: participantId, company_id: companyId }
+  }
+  try {
+    const { data, error } = await supabase.rpc('assign_participant_company', { p_participant_id: participantId, p_company_id: companyId })
+    if (error) throw new Error([error.message, error.details, error.hint].filter(Boolean).join(' · '))
+    return data as { participant_id: string; company_id: string }
+  } catch (error) {
+    console.warn('No se pudo guardar la compañía remota; se guardará localmente.', error)
+    activateLocalMode()
+    const updated = companyRepository.assign(participantId, companyId)
+    if (!updated) throw error
+    return { participant_id: participantId, company_id: companyId }
+  }
 }
 
-export async function createVisitor(eventId: string, input: { firstName: string; lastName: string; origin: string }) {
-  const { data, error } = await supabase
-    .from('participants')
-    .insert({ event_id: eventId, first_name: input.firstName, last_name: input.lastName, stake: 'Visitante', ward: input.origin || 'Procedencia no registrada', is_church_member: false, authorization_status: 'pending', is_youth_leader: false, is_exception: false, notes: 'Visitante agregado en el evento.' })
-    .select('id')
-    .single()
-  if (error) throw error
-  await hydrateRepositories(eventId)
-  const participant = participantRepository.findById(data.id)
-  if (!participant) throw new Error('No se pudo cargar el visitante creado.')
-  return participant
+export async function createVisitor(eventId: string, input: { firstName: string; lastName: string; origin: string; companyId?: string }) {
+  if (localMode) {
+    const id = `local-${Date.now()}`
+    const participant: Participant = { id, firstName: input.firstName, lastName: input.lastName, isChurchMember: false, stake: 'Visitante', ward: input.origin || 'Procedencia no registrada', authorizationStatus: 'pending', isYouthLeader: false, checkedIn: false, materials: { shirt: false, cardPack: false, credential: false }, isException: false, companyId: input.companyId }
+    participantsState = [...participantsState, participant]
+    companiesState = companiesState.map((company) => company.id === input.companyId ? { ...company, currentSize: company.currentSize + 1 } : company)
+    persistLocalState()
+    return participant
+  }
+  try {
+    const { data, error } = await supabase
+      .from('participants')
+      .insert({ event_id: eventId, first_name: input.firstName, last_name: input.lastName, stake: 'Visitante', ward: input.origin || 'Procedencia no registrada', is_church_member: false, authorization_status: 'pending', is_youth_leader: false, is_exception: false, notes: 'Visitante agregado en el evento.' })
+      .select('id')
+      .single()
+    if (error) throw error
+    if (input.companyId) await assignParticipantCompany(data.id, input.companyId)
+    await hydrateRepositories(eventId)
+    const participant = participantRepository.findById(data.id)
+    if (!participant) throw new Error('No se pudo cargar el visitante creado.')
+    return participant
+  } catch (error) {
+    console.warn('No se pudo guardar el visitante remoto; se guardará localmente.', error)
+    activateLocalMode()
+    return createVisitor(eventId, input)
+  }
 }
 
 export async function importParticipants(eventId: string, participants: Participant[]) {
+  if (localMode) return importParticipantsLocally(participants)
   const [{ data: existing, error: existingError }, { data: remoteCompanies, error: companyError }] = await Promise.all([
     supabase
     .from('participants')
@@ -297,9 +450,36 @@ export async function importParticipants(eventId: string, participants: Particip
   return rows.length
 }
 
+function importParticipantsLocally(items: Participant[]) {
+  const key = (participant: Participant) => [participant.firstName, participant.lastName, participant.birthDate ?? '', participant.age ?? '', participant.stake, participant.ward].map((value) => String(value).trim().toLocaleLowerCase('es')).join('|')
+  const existing = new Set(participantsState.map(key))
+  let imported = 0
+  for (const item of items) {
+    if (existing.has(key(item))) continue
+    const company = item.companyNumber ? companiesState.find((candidate) => candidate.number === item.companyNumber) : undefined
+    const participant = { ...item, id: `local-import-${Date.now()}-${imported}`, companyId: company?.id }
+    participantsState = [...participantsState, participant]
+    if (company) companiesState = companiesState.map((candidate) => candidate.id === company.id ? { ...candidate, currentSize: candidate.currentSize + 1 } : candidate)
+    existing.add(key(item))
+    imported += 1
+  }
+  persistLocalState()
+  return imported
+}
+
 export async function updateParticipantMedicalInfo(participantId: string, medicalInfo: string) {
-  const { error } = await supabase.from('participants').update({ medical_info: medicalInfo || null }).eq('id', participantId)
-  if (error) throw error
+  if (localMode) {
+    updateLocalParticipant(participantId, (participant) => ({ ...participant, medicalInfo: medicalInfo || undefined }))
+    return
+  }
+  try {
+    const { error } = await supabase.from('participants').update({ medical_info: medicalInfo || null }).eq('id', participantId)
+    if (error) throw error
+  } catch (error) {
+    console.warn('No se pudo actualizar la información médica remota; se guardará localmente.', error)
+    activateLocalMode()
+    updateLocalParticipant(participantId, (participant) => ({ ...participant, medicalInfo: medicalInfo || undefined }))
+  }
 }
 
 export function recommendCompany(participant: Participant) {

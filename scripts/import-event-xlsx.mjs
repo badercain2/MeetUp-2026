@@ -24,6 +24,7 @@ const participants = rows.map((row, index) => {
   if (!row['Nombre de pila'] || !row['Apellido'] || !Number.isInteger(companyNumber) || companyNumber < 1 || companyNumber > 12) {
     throw new Error(`Fila ${index + 2} incompleta o con compañía inválida`)
   }
+  const member = String(row['Es miembro'] ?? row['Miembro'] ?? '').trim().toLocaleLowerCase('es')
   return {
     first_name: String(row['Nombre de pila']).trim(),
     last_name: String(row['Apellido']).trim(),
@@ -34,7 +35,8 @@ const participants = rows.map((row, index) => {
     age: Number.parseInt(String(row['Edad']).trim(), 10),
     stake: String(row['Nombre de la estaca o distrito']).trim(),
     ward: String(row['Nombre del barrio o rama']).trim(),
-    company_number: companyNumber
+    company_number: companyNumber,
+    is_church_member: !['no', 'visitante', 'false', '0'].includes(member)
   }
 })
 
@@ -62,12 +64,12 @@ set name = excluded.name, target_size = excluded.target_size,
     active = true, updated_at = now();
 ${reset}
 insert into public.participants(event_id, first_name, last_name, birth_date, sex, shirt_size, dietary_info, age, stake, ward, is_church_member, is_youth_leader, authorization_status, is_exception, checking)
-select '${eventId}', source.first_name, source.last_name, source.birth_date, source.sex, source.shirt_size, source.dietary_info, source.age, source.stake, source.ward, true, false, 'pending', false, false
-from jsonb_to_recordset(${source}) as source(first_name text, last_name text, birth_date date, sex text, shirt_size text, dietary_info text, age integer, stake text, ward text, company_number integer);
+select '${eventId}', source.first_name, source.last_name, source.birth_date, source.sex, source.shirt_size, source.dietary_info, source.age, source.stake, source.ward, source.is_church_member, false, 'pending', false, false
+from jsonb_to_recordset(${source}) as source(first_name text, last_name text, birth_date date, sex text, shirt_size text, dietary_info text, age integer, stake text, ward text, company_number integer, is_church_member boolean);
 
 insert into public.company_memberships(event_id, participant_id, company_id, assignment_source, is_current)
 select '${eventId}', participant.id, company.id, 'PREASSIGNED', true
-from jsonb_to_recordset(${source}) as source(first_name text, last_name text, birth_date date, sex text, shirt_size text, dietary_info text, age integer, stake text, ward text, company_number integer)
+from jsonb_to_recordset(${source}) as source(first_name text, last_name text, birth_date date, sex text, shirt_size text, dietary_info text, age integer, stake text, ward text, company_number integer, is_church_member boolean)
 join public.participants participant on participant.event_id = '${eventId}'
   and participant.first_name = source.first_name and participant.last_name = source.last_name
   and participant.birth_date is not distinct from source.birth_date and participant.age = source.age
