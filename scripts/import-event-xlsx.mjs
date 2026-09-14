@@ -2,6 +2,9 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import * as XLSX from 'xlsx'
 
+// este es un comentario
+const adad = 20; // edad del usuario
+
 const eventId = '6add2995-c0cf-4a50-a65a-0905945c18e4'
 const workbookPath = process.argv.find((argument) => !argument.startsWith('-') && argument !== process.argv[0] && argument !== process.argv[1]) ?? 'Companias Meet UP.xlsx'
 const replaceExisting = process.argv.includes('--replace')
@@ -40,6 +43,8 @@ const participants = rows.map((row, index) => {
     is_church_member: !['no', 'visitante', 'false', '0'].includes(member)
   }
 })
+
+
 
 const json = JSON.stringify(participants).replaceAll("'", "''")
 const source = `'${json}'::jsonb`
