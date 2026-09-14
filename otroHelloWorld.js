@@ -9,4 +9,7 @@ function restar(a, b) {
 let a = Number(prompt("Ingrese el primer número:"));
 
 
+let b = Number(prompt("Ingrese el segundo número:"));
+
+function restar(a, b); 
 
